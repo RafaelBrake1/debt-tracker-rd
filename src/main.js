@@ -2,18 +2,31 @@ import './style.css';
 import confetti from 'canvas-confetti';
 import { INITIAL_DEBTS, INITIAL_SETTINGS } from './debtsData.js';
 import { calculateSummary, simulateRepayment, calculateCurrentMonthDistribution, formatCurrency } from './financeEngine.js';
+import {
+  supabase,
+  syncFetchDebts,
+  syncSaveDebt,
+  syncDeleteDebt,
+  syncFetchSettings,
+  syncSaveSettings,
+  syncFetchMonthlyChecks,
+  syncToggleMonthlyCheck,
+  syncClearMonthlyChecks,
+  syncSeedDebts
+} from './supabaseService.js';
 
-// Storage keys (v2 with User's verified base data)
+// Storage keys (v2 fallback)
 const STORAGE_DEBTS_KEY = 'deudazero_rd_debts_v2';
 const STORAGE_SETTINGS_KEY = 'deudazero_rd_settings_v2';
 const STORAGE_PAID_DUE_KEY = 'deudazero_rd_paid_due_dates_v2';
 
-// Load or initialize state
+// State
 let debts = loadDebts();
 let settings = loadSettings();
-let paidDueDates = loadPaidDueDates(); // Set or array of debt IDs marked as paid for the month
-let currentFilter = 'all'; // 'all', 'credit_card', 'loan', 'overlimit'
-let currentTab = 'debts-tab'; // 'debts-tab', 'strategy-tab', 'calendar-tab', 'calculator-tab'
+let paidDueDates = loadPaidDueDates();
+let isCloudSynced = false;
+let currentFilter = 'all';
+let currentTab = 'debts-tab';
 let editingDebtId = null;
 
 function loadPaidDueDates() {
@@ -31,7 +44,6 @@ function loadPaidDueDates() {
 function savePaidDueDates() {
   localStorage.setItem(STORAGE_PAID_DUE_KEY, JSON.stringify(paidDueDates));
 }
-
 
 function loadDebts() {
   const saved = localStorage.getItem(STORAGE_DEBTS_KEY);
@@ -64,6 +76,7 @@ function loadSettings() {
 function saveSettings() {
   localStorage.setItem(STORAGE_SETTINGS_KEY, JSON.stringify(settings));
 }
+
 
 // Show Toast helper
 function showToast(message, icon = 'fa-check-circle') {
@@ -98,8 +111,12 @@ function renderApp() {
             <div class="brand-title">
               DeudaZero <span class="badge-country">RD 🇩🇴</span>
             </div>
-            <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 500;">
-              Estrategia Inteligente & Control Total
+            <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 500; display:flex; align-items:center; gap:0.4rem;">
+              <span>Estrategia Inteligente & Control Total</span>
+              <span id="cloud-sync-badge" style="font-size: 0.65rem; background: ${isCloudSynced ? 'rgba(16,185,129,0.2)' : 'rgba(6,182,212,0.2)'}; color: ${isCloudSynced ? '#34d399' : '#38bdf8'}; padding: 0.05rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i class="fa-solid ${isCloudSynced ? 'fa-cloud' : 'fa-arrows-rotate fa-spin'}"></i>
+                ${isCloudSynced ? 'Nube Supabase' : 'Sincronizando...'}
+              </span>
             </div>
           </div>
         </div>
@@ -429,6 +446,7 @@ function attachAppListeners() {
     if (!isNaN(val) && val > 0) {
       settings.usdToDopRate = val;
       saveSettings();
+      syncSaveSettings(settings);
       renderApp();
       showToast(`Tasa de cambio actualizada a RD$ ${val.toFixed(2)} por US$`);
     }
@@ -442,6 +460,7 @@ function attachAppListeners() {
       if (!isNaN(num) && num >= 0) {
         settings.monthlyIncomeDOP = num;
         saveSettings();
+        syncSaveSettings(settings);
         renderApp();
         showToast(`Ingreso actualizado a RD$ ${num.toLocaleString()}`);
       }
@@ -660,6 +679,7 @@ function renderDebtsCards() {
       if (confirm('¿Estás seguro de eliminar esta deuda?')) {
         debts = debts.filter(d => d.id !== id);
         saveDebts();
+        syncDeleteDebt(id);
         renderApp();
         showToast('Deuda eliminada del registro.');
       }
@@ -682,6 +702,7 @@ function renderDebtsCards() {
           target.balance = initial ? initial.balance : (target.creditLimit || 100);
         }
         saveDebts();
+        syncSaveDebt(target);
         renderApp();
         showToast(`Deuda "${target.name}" reactivada con su balance restaurado.`);
       }
@@ -1090,7 +1111,8 @@ function renderCalendarTab() {
   mount.querySelectorAll('.calendar-check-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const debtId = btn.dataset.calendarId;
-      if (paidDueDates.includes(debtId)) {
+      const willBeChecked = !paidDueDates.includes(debtId);
+      if (!willBeChecked) {
         paidDueDates = paidDueDates.filter(id => id !== debtId);
         showToast('Pago desmarcado.');
       } else {
@@ -1103,6 +1125,7 @@ function renderCalendarTab() {
         showToast('¡Pago de cuota mensual registrado con éxito!', 'fa-circle-check');
       }
       savePaidDueDates();
+      syncToggleMonthlyCheck(debtId, willBeChecked);
       renderCalendarTab();
     });
   });
@@ -1114,6 +1137,7 @@ function renderCalendarTab() {
       if (confirm('¿Deseas reiniciar todos los checks del mes?')) {
         paidDueDates = [];
         savePaidDueDates();
+        syncClearMonthlyChecks();
         renderCalendarTab();
         showToast('Checks del mes reiniciados.');
       }
@@ -1176,6 +1200,7 @@ function handleSaveDebt(e) {
     return;
   }
 
+  let savedTargetDebt = null;
   if (editingDebtId) {
     const index = debts.findIndex(d => d.id === editingDebtId);
     if (index !== -1) {
@@ -1193,6 +1218,7 @@ function handleSaveDebt(e) {
         notes,
         status: balance <= 0 ? 'paid' : 'active'
       };
+    savedTargetDebt = debts[index];
       showToast('Deuda actualizada con éxito.');
     }
   } else {
@@ -1211,10 +1237,12 @@ function handleSaveDebt(e) {
       status: balance <= 0 ? 'paid' : 'active'
     };
     debts.push(newDebt);
+    savedTargetDebt = newDebt;
     showToast('Nueva deuda registrada.');
   }
 
   saveDebts();
+  if (savedTargetDebt) syncSaveDebt(savedTargetDebt);
   closeDebtModal();
   renderApp();
 }
@@ -1273,9 +1301,69 @@ function handleConfirmPay() {
   }
 
   saveDebts();
+  syncSaveDebt(debt);
   closePayModal();
   renderApp();
 }
 
+// Initialize Cloud Sync & Realtime
+async function initCloudSync() {
+  try {
+    const [cloudDebts, cloudSettings, cloudChecks] = await Promise.all([
+      syncFetchDebts(),
+      syncFetchSettings(),
+      syncFetchMonthlyChecks()
+    ]);
+
+    if (cloudDebts && cloudDebts.length > 0) {
+      debts = cloudDebts;
+      saveDebts();
+    }
+    if (cloudSettings) {
+      settings = cloudSettings;
+      saveSettings();
+    }
+    if (cloudChecks) {
+      paidDueDates = cloudChecks;
+      savePaidDueDates();
+    }
+
+    isCloudSynced = true;
+    renderApp();
+
+    // Setup Supabase Realtime Channels for instant multi-device live sync
+    supabase.channel('cloud-debts-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'debts' }, async () => {
+        const fresh = await syncFetchDebts();
+        if (fresh) {
+          debts = fresh;
+          saveDebts();
+          renderApp();
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'monthly_checks' }, async () => {
+        const freshChecks = await syncFetchMonthlyChecks();
+        if (freshChecks) {
+          paidDueDates = freshChecks;
+          savePaidDueDates();
+          renderCalendarTab();
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings' }, async () => {
+        const freshSettings = await syncFetchSettings();
+        if (freshSettings) {
+          settings = freshSettings;
+          saveSettings();
+          renderApp();
+        }
+      })
+      .subscribe();
+  } catch (err) {
+    console.warn('Supabase realtime init error:', err);
+  }
+}
+
 // Boot application
 renderApp();
+initCloudSync();
+
