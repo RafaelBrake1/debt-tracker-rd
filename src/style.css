@@ -1028,7 +1028,50 @@ input[type="range"] {
   font-family: var(--font-mono);
   font-weight: 700;
   font-size: 1rem;
-  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.day-schedule-row.is-month-paid {
+  opacity: 0.65;
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.05);
+}
+
+.day-schedule-row.is-month-paid .schedule-name {
+  text-decoration: line-through;
+  color: var(--text-secondary);
+}
+
+.calendar-check-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: var(--transition);
+  flex-shrink: 0;
+}
+
+.calendar-check-btn:hover {
+  border-color: var(--accent-emerald);
+  color: var(--accent-emerald);
+  background: rgba(16, 185, 129, 0.1);
+  transform: scale(1.05);
+}
+
+.calendar-check-btn.checked {
+  background: var(--accent-emerald);
+  border-color: var(--accent-emerald);
+  color: #fff;
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.4);
 }
 
 /* Income Flow Insights */

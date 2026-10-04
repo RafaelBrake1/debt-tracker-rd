@@ -6,13 +6,32 @@ import { calculateSummary, simulateRepayment, calculateCurrentMonthDistribution,
 // Storage keys
 const STORAGE_DEBTS_KEY = 'deudazero_rd_debts';
 const STORAGE_SETTINGS_KEY = 'deudazero_rd_settings';
+const STORAGE_PAID_DUE_KEY = 'deudazero_rd_paid_due_dates';
 
 // Load or initialize state
 let debts = loadDebts();
 let settings = loadSettings();
+let paidDueDates = loadPaidDueDates(); // Set or array of debt IDs marked as paid for the month
 let currentFilter = 'all'; // 'all', 'credit_card', 'loan', 'overlimit'
 let currentTab = 'debts-tab'; // 'debts-tab', 'strategy-tab', 'calendar-tab', 'calculator-tab'
 let editingDebtId = null;
+
+function loadPaidDueDates() {
+  const saved = localStorage.getItem(STORAGE_PAID_DUE_KEY);
+  if (saved) {
+    try {
+      return JSON.parse(saved);
+    } catch (e) {
+      console.error('Error parsing stored paid due dates', e);
+    }
+  }
+  return [];
+}
+
+function savePaidDueDates() {
+  localStorage.setItem(STORAGE_PAID_DUE_KEY, JSON.stringify(paidDueDates));
+}
+
 
 function loadDebts() {
   const saved = localStorage.getItem(STORAGE_DEBTS_KEY);
@@ -96,8 +115,8 @@ function renderApp() {
             <i class="fa-solid fa-plus"></i> Nueva Deuda
           </button>
 
-          <button id="btn-reset-data" class="btn btn-secondary" title="Restaurar datos originales">
-            <i class="fa-solid fa-rotate-right"></i>
+          <button id="btn-reset-data" class="btn btn-secondary" title="Restaurar datos originales a valores iniciales" style="font-size:0.8rem; border-color: rgba(244,63,94,0.3); color: #fca5a5;">
+            <i class="fa-solid fa-rotate-right"></i> Restaurar Valores
           </button>
         </div>
       </div>
@@ -427,13 +446,18 @@ function attachAppListeners() {
 
   // Reset Data to defaults
   document.getElementById('btn-reset-data').addEventListener('click', () => {
-    if (confirm('¿Deseas restaurar todos los datos a los valores iniciales de tus estados de cuenta?')) {
+    if (confirm('¿Deseas restaurar todas las deudas y balances a los valores originales de tus estados de cuenta?')) {
+      localStorage.removeItem(STORAGE_DEBTS_KEY);
+      localStorage.removeItem(STORAGE_SETTINGS_KEY);
+      localStorage.removeItem(STORAGE_PAID_DUE_KEY);
       debts = JSON.parse(JSON.stringify(INITIAL_DEBTS));
       settings = JSON.parse(JSON.stringify(INITIAL_SETTINGS));
+      paidDueDates = [];
       saveDebts();
       saveSettings();
+      savePaidDueDates();
       renderApp();
-      showToast('Datos restaurados con éxito.');
+      showToast('¡Todos los datos han sido restaurados a sus valores originales!', 'fa-rotate-right');
     }
   });
 
@@ -634,9 +658,14 @@ function renderDebtsCards() {
       const target = debts.find(d => d.id === id);
       if (target) {
         target.status = 'active';
+        if (target.balance <= 0) {
+          // Find original default balance
+          const initial = INITIAL_DEBTS.find(d => d.id === id);
+          target.balance = initial ? initial.balance : (target.creditLimit || 100);
+        }
         saveDebts();
         renderApp();
-        showToast(`Deuda "${target.name}" reactivada.`);
+        showToast(`Deuda "${target.name}" reactivada con su balance restaurado.`);
       }
     });
   });
@@ -923,21 +952,27 @@ function renderCalendarTab() {
         <div>
           <h3 style="font-size:1.15rem; font-weight:700;">Cronograma Mensual de Vencimientos</h3>
           <p style="font-size:0.8rem; color:var(--text-secondary); margin-top:0.2rem;">
-            Todos los pagos ordenados cronológicamente del día 1 al 31 del mes.
+            Marca con el check cada vez que pagues la cuota/mínimo este mes.
           </p>
         </div>
-        <span style="font-size:0.8rem; background:rgba(255,255,255,0.06); padding:0.35rem 0.75rem; border-radius:var(--radius-full); font-weight:600;">
-          ${activeDebts.length} Fechas de Pago
-        </span>
+        <div style="display:flex; align-items:center; gap:0.5rem;">
+          <button class="btn btn-secondary" id="btn-reset-monthly-checks" style="font-size:0.75rem; padding:0.3rem 0.65rem;" title="Desmarcar todos los checks del mes">
+            <i class="fa-solid fa-arrow-rotate-left"></i> Reiniciar Checks
+          </button>
+          <span style="font-size:0.8rem; background:rgba(255,255,255,0.06); padding:0.35rem 0.75rem; border-radius:var(--radius-full); font-weight:600;">
+            ${paidDueDates.length} de ${activeDebts.length} Pagados
+          </span>
+        </div>
       </div>
 
       <div class="days-schedule-list">
         ${activeDebts.map(d => {
           const isUrgent = d.dueDay <= 5; // First 5 days of month
           const minDOP = d.currency === 'USD' ? d.minPayment * rate : d.minPayment;
+          const isPaidThisMonth = paidDueDates.includes(d.id);
           return `
-            <div class="day-schedule-row">
-              <div class="day-pill ${isUrgent ? 'day-urgent' : ''}">
+            <div class="day-schedule-row ${isPaidThisMonth ? 'is-month-paid' : ''}">
+              <div class="day-pill ${isUrgent && !isPaidThisMonth ? 'day-urgent' : ''}">
                 <span class="day-num">${d.dueDay}</span>
                 <span class="day-txt">Día</span>
               </div>
@@ -946,6 +981,7 @@ function renderCalendarTab() {
                 <div class="schedule-name">
                   ${d.name} 
                   ${d.category === 'loan' ? '<span style="font-size:0.65rem; background:rgba(59,130,246,0.15); color:#60a5fa; padding:0.1rem 0.35rem; border-radius:4px; margin-left:0.3rem;">Préstamo</span>' : ''}
+                  ${isPaidThisMonth ? '<span style="font-size:0.68rem; background:rgba(16,185,129,0.25); color:#6ee7b7; padding:0.1rem 0.4rem; border-radius:4px; margin-left:0.4rem; font-weight:700;"><i class="fa-solid fa-check"></i> Pagado este mes</span>' : ''}
                 </div>
                 <div class="schedule-meta">
                   ${d.institution} • Saldo actual: ${formatCurrency(d.balance, d.currency)}
@@ -953,9 +989,14 @@ function renderCalendarTab() {
               </div>
 
               <div class="schedule-amount">
-                ${formatCurrency(d.minPayment, d.currency)}
+                <span>${formatCurrency(d.minPayment, d.currency)}</span>
                 ${d.currency === 'USD' ? `<div style="font-size:0.75rem; color:var(--text-muted); font-weight:normal;">≈ ${formatCurrency(minDOP, 'DOP')}</div>` : ''}
               </div>
+
+              <!-- Interactive Check Button -->
+              <button class="calendar-check-btn ${isPaidThisMonth ? 'checked' : ''}" data-calendar-id="${d.id}" title="${isPaidThisMonth ? 'Desmarcar pago' : 'Marcar como pagado este mes'}">
+                <i class="fa-solid ${isPaidThisMonth ? 'fa-check' : 'fa-circle-check'}"></i>
+              </button>
             </div>
           `;
         }).join('')}
@@ -982,12 +1023,15 @@ function renderCalendarTab() {
           <div class="q-val" style="color:var(--accent-amber);">${formatCurrency(q1TotalDOP, 'DOP')}</div>
           
           <ul class="q-list">
-            ${q1Debts.map(d => `
-              <li>
-                <span>• Día ${d.dueDay}: ${d.name.slice(0, 22)}...</span>
-                <span>${formatCurrency(d.minPayment, d.currency)}</span>
-              </li>
-            `).join('')}
+            ${q1Debts.map(d => {
+              const isChecked = paidDueDates.includes(d.id);
+              return `
+                <li style="${isChecked ? 'text-decoration:line-through; opacity:0.6;' : ''}">
+                  <span>${isChecked ? '<i class="fa-solid fa-check" style="color:var(--accent-emerald); font-size:0.75rem; margin-right:4px;"></i>' : '•'} Día ${d.dueDay}: ${d.name.slice(0, 20)}...</span>
+                  <span>${formatCurrency(d.minPayment, d.currency)}</span>
+                </li>
+              `;
+            }).join('')}
           </ul>
 
           <div style="margin-top:0.6rem; font-size:0.75rem; color:${halfIncome - q1TotalDOP >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)'}; font-weight:600;">
@@ -1005,12 +1049,15 @@ function renderCalendarTab() {
           <div class="q-val" style="color:var(--accent-amber);">${formatCurrency(q2TotalDOP, 'DOP')}</div>
           
           <ul class="q-list">
-            ${q2Debts.map(d => `
-              <li>
-                <span>• Día ${d.dueDay}: ${d.name.slice(0, 22)}...</span>
-                <span>${formatCurrency(d.minPayment, d.currency)}</span>
-              </li>
-            `).join('')}
+            ${q2Debts.map(d => {
+              const isChecked = paidDueDates.includes(d.id);
+              return `
+                <li style="${isChecked ? 'text-decoration:line-through; opacity:0.6;' : ''}">
+                  <span>${isChecked ? '<i class="fa-solid fa-check" style="color:var(--accent-emerald); font-size:0.75rem; margin-right:4px;"></i>' : '•'} Día ${d.dueDay}: ${d.name.slice(0, 20)}...</span>
+                  <span>${formatCurrency(d.minPayment, d.currency)}</span>
+                </li>
+              `;
+            }).join('')}
           </ul>
 
           <div style="margin-top:0.6rem; font-size:0.75rem; color:${halfIncome - q2TotalDOP >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)'}; font-weight:600;">
@@ -1020,6 +1067,40 @@ function renderCalendarTab() {
       </div>
     </div>
   `;
+
+  // Attach check button listeners
+  mount.querySelectorAll('.calendar-check-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const debtId = btn.dataset.calendarId;
+      if (paidDueDates.includes(debtId)) {
+        paidDueDates = paidDueDates.filter(id => id !== debtId);
+        showToast('Pago desmarcado.');
+      } else {
+        paidDueDates.push(debtId);
+        confetti({
+          particleCount: 50,
+          spread: 60,
+          origin: { y: 0.7 }
+        });
+        showToast('¡Pago de cuota mensual registrado con éxito!', 'fa-circle-check');
+      }
+      savePaidDueDates();
+      renderCalendarTab();
+    });
+  });
+
+  // Reset checks button
+  const resetChecksBtn = document.getElementById('btn-reset-monthly-checks');
+  if (resetChecksBtn) {
+    resetChecksBtn.addEventListener('click', () => {
+      if (confirm('¿Deseas reiniciar todos los checks del mes?')) {
+        paidDueDates = [];
+        savePaidDueDates();
+        renderCalendarTab();
+        showToast('Checks del mes reiniciados.');
+      }
+    });
+  }
 }
 
 // Modal Handlers
