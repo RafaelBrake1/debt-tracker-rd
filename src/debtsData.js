@@ -156,5 +156,7 @@ export const INITIAL_SETTINGS = {
   monthlyIncomeDOP: 58000.00, // RD$ 58,000 mensuales
   usdToDopRate: 60.50, // Tasa de cambio promedio DOP / USD
   extraMonthlyPaymentDOP: 28000.00, // Capacidad de abono extra configurada
-  strategy: "avalanche" // "avalanche" (interés más alto primero) o "snowball" (saldo menor primero)
+  strategy: "avalanche", // "avalanche" (interés más alto primero) o "snowball" (saldo menor primero)
+  monthlyExtras: [] // Array of { id, monthOffset, name, amountDOP, isRecurring }
 };
+

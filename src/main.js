@@ -75,6 +75,17 @@ function loadSettings() {
 
 function saveSettings() {
   localStorage.setItem(STORAGE_SETTINGS_KEY, JSON.stringify(settings));
+  syncSaveSettings(settings);
+}
+
+// Format simulation month with Dominican calendar dates
+function getSimulationMonthLabel(monthOffset) {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + (monthOffset - 1));
+  const mName = d.toLocaleDateString('es-DO', { month: 'long', year: 'numeric' });
+  const cap = mName.charAt(0).toUpperCase() + mName.slice(1);
+  return `Mes ${monthOffset} (${cap})`;
 }
 
 
@@ -426,6 +437,66 @@ function renderApp() {
       </div>
     </div>
 
+    <!-- Modal for Scheduling Extra Income -->
+    <div id="extra-income-modal" class="modal-overlay">
+      <div class="modal-window" style="max-width: 480px;">
+        <div class="modal-header">
+          <div class="modal-title" id="extra-income-modal-title">
+            <i class="fa-solid fa-wand-magic-sparkles" style="color:var(--accent-emerald);"></i> Programar Ingreso Extra
+          </div>
+          <button class="btn-icon" id="btn-close-extra-modal"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="form-extra-id">
+          
+          <div class="form-group">
+            <label class="form-label">Concepto o Motivo del Ingreso</label>
+            <input type="text" class="form-control" id="form-extra-name" placeholder="Ej. Regalía Pascual / Doble Sueldo">
+            <div style="display:flex; flex-wrap:wrap; gap:0.35rem; margin-top:0.4rem;">
+              <button type="button" class="btn-chip-suggest" data-name="Regalía / Doble Sueldo 🎄">Regalía 🎄</button>
+              <button type="button" class="btn-chip-suggest" data-name="Bono de Desempeño 💼">Bono Anual 💼</button>
+              <button type="button" class="btn-chip-suggest" data-name="Venta / Ingreso Extra 🚗">Venta / Extra 🚗</button>
+              <button type="button" class="btn-chip-suggest" data-name="Devolución DGII / Ahorro 💰">Devolución / Ahorro 💰</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">¿En qué mes lo recibirás?</label>
+            <select class="form-control" id="form-extra-month">
+              <!-- Populated dynamically via openExtraIncomeModal() -->
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Monto Extra en Pesos Dominicanos (RD$)</label>
+            <input type="number" step="100" class="form-control" id="form-extra-amount" placeholder="50000">
+            <div style="display:flex; flex-wrap:wrap; gap:0.35rem; margin-top:0.4rem;">
+              <button type="button" class="btn-chip-amount" data-amount="10000">+RD$ 10,000</button>
+              <button type="button" class="btn-chip-amount" data-amount="25000">+RD$ 25,000</button>
+              <button type="button" class="btn-chip-amount" data-amount="50000">+RD$ 50,000</button>
+              <button type="button" class="btn-chip-amount" data-amount="100000">+RD$ 100,000</button>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top:0.5rem; background:rgba(255,255,255,0.03); border:1px solid var(--border-subtle); padding:0.75rem; border-radius:var(--radius-sm);">
+            <label style="display:flex; align-items:center; gap:0.6rem; cursor:pointer; font-size:0.83rem; font-weight:600;">
+              <input type="checkbox" id="form-extra-recurring" style="accent-color:var(--accent-emerald); width:18px; height:18px;">
+              <span>¿Es un ingreso recurrente (todos los meses desde ese mes)?</span>
+            </label>
+            <div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.3rem; margin-left:1.75rem;">
+              Marca esto si recibes un aumento o negocio fijo recurrente a partir de esa fecha.
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="btn-cancel-extra-modal">Cancelar</button>
+          <button class="btn btn-primary" id="btn-save-extra-income">
+            <i class="fa-solid fa-check"></i> Aplicar a la Simulación
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Toast Container -->
     <div class="toast-container" id="toast-container"></div>
   `;
@@ -535,6 +606,29 @@ function attachAppListeners() {
   document.getElementById('btn-close-pay-modal').addEventListener('click', closePayModal);
   document.getElementById('btn-cancel-pay-modal').addEventListener('click', closePayModal);
   document.getElementById('btn-confirm-pay').addEventListener('click', handleConfirmPay);
+
+  // Extra Income Modal listeners
+  const closeExtraBtn = document.getElementById('btn-close-extra-modal');
+  if (closeExtraBtn) closeExtraBtn.addEventListener('click', closeExtraIncomeModal);
+  const cancelExtraBtn = document.getElementById('btn-cancel-extra-modal');
+  if (cancelExtraBtn) cancelExtraBtn.addEventListener('click', closeExtraIncomeModal);
+  const saveExtraBtn = document.getElementById('btn-save-extra-income');
+  if (saveExtraBtn) saveExtraBtn.addEventListener('click', saveExtraIncomeFromModal);
+
+  // Suggestion chips inside Extra Income Modal
+  document.querySelectorAll('.btn-chip-suggest').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const nameInput = document.getElementById('form-extra-name');
+      if (nameInput) nameInput.value = chip.dataset.name;
+    });
+  });
+
+  document.querySelectorAll('.btn-chip-amount').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const amountInput = document.getElementById('form-extra-amount');
+      if (amountInput) amountInput.value = chip.dataset.amount;
+    });
+  });
 }
 
 // Render Debts Cards List
@@ -721,6 +815,13 @@ function renderStrategyTab() {
   const altSimulation = simulateRepayment(debts, settings, altStrategy);
   const cascadePlan = calculateCurrentMonthDistribution(debts, settings);
 
+  // Baseline simulation without extra bonuses to calculate accelerator impact
+  const baseSettings = { ...settings, monthlyExtras: [] };
+  const baselineSimulation = simulateRepayment(debts, baseSettings, currentStrategy);
+  const monthsSaved = Math.max(0, baselineSimulation.totalMonths - simulation.totalMonths);
+  const interestSaved = Math.max(0, baselineSimulation.totalInterestPaidDOP - simulation.totalInterestPaidDOP);
+  const totalExtraInjectedBonuses = (settings.monthlyExtras || []).reduce((acc, curr) => acc + (Number(curr.amountDOP) || 0), 0);
+
   const interestDiff = Math.abs(simulation.totalInterestPaidDOP - altSimulation.totalInterestPaidDOP);
 
   mount.innerHTML = `
@@ -756,7 +857,7 @@ function renderStrategyTab() {
       <!-- Extra Monthly Payment Slider -->
       <div class="input-slider-box">
         <div class="slider-labels">
-          <span style="font-size:0.82rem; font-weight:600; color:var(--text-secondary);">Abono Extra Mensual a Capital</span>
+          <span style="font-size:0.82rem; font-weight:600; color:var(--text-secondary);">Abono Extra Fijo Mensual a Capital</span>
           <span class="slider-val-tag" id="extra-payment-display">${formatCurrency(settings.extraMonthlyPaymentDOP, 'DOP')}</span>
         </div>
         <input type="range" id="extra-payment-slider" min="0" max="30000" step="500" value="${settings.extraMonthlyPaymentDOP}">
@@ -770,10 +871,57 @@ function renderStrategyTab() {
         </p>
       </div>
 
+      <!-- Monthly Extras Simulation Box -->
+      <div class="monthly-extras-section">
+        <div class="monthly-extras-header">
+          <div class="monthly-extras-title">
+            <i class="fa-solid fa-wand-magic-sparkles" style="color:var(--accent-emerald);"></i>
+            <span>Ingresos Extras por Mes</span>
+          </div>
+          <button type="button" class="btn btn-primary" id="btn-open-add-extra" style="font-size:0.75rem; padding:0.35rem 0.75rem;">
+            <i class="fa-solid fa-plus"></i> Programar
+          </button>
+        </div>
+        <p style="font-size:0.75rem; color:var(--text-secondary); line-height:1.4;">
+          Simula regalías de navidad, bonos de trabajo o entradas adicionales en meses específicos para ver cómo aceleran tu liquidación.
+        </p>
+
+        ${(settings.monthlyExtras && settings.monthlyExtras.length > 0) ? `
+          <div class="extras-list">
+            ${settings.monthlyExtras.map(item => `
+              <div class="extra-item-card">
+                <div class="extra-item-left">
+                  <div class="extra-item-name">
+                    <span>${item.name}</span>
+                    ${item.isRecurring ? '<span style="font-size:0.65rem; background:rgba(6,182,212,0.25); color:#67e8f9; padding:0.1rem 0.35rem; border-radius:4px;">Recurrente</span>' : ''}
+                  </div>
+                  <div class="extra-item-meta">
+                    <i class="fa-regular fa-calendar" style="color:var(--accent-cyan);"></i>
+                    <span>${getSimulationMonthLabel(item.monthOffset)}</span>
+                  </div>
+                </div>
+                <div class="extra-item-right">
+                  <div class="extra-item-amount">+${formatCurrency(item.amountDOP, 'DOP')}</div>
+                  <button type="button" class="btn-delete-extra" data-id="${item.id}" title="Eliminar este ingreso extra">
+                    <i class="fa-solid fa-trash-can"></i>
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        ` : `
+          <div class="monthly-extras-empty">
+            <i class="fa-solid fa-calendar-plus" style="font-size:1.4rem; opacity:0.4; margin-bottom:0.4rem; display:block;"></i>
+            No tienes ingresos extras programados aún.<br>
+            Toca en <strong>"+ Programar"</strong> para agregar tu regalía o bonos.
+          </div>
+        `}
+      </div>
+
       <!-- Fast Action Info Box -->
       <div style="background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.25); border-radius:var(--radius-md); padding:1rem;">
         <div style="font-weight:700; font-size:0.85rem; color:var(--accent-emerald); display:flex; align-items:center; gap:0.4rem;">
-          <i class="fa-solid fa-chart-line"></i> Ahorro Calculado
+          <i class="fa-solid fa-chart-line"></i> Comparativa Avalancha vs Bola de Nieve
         </div>
         <p style="font-size:0.78rem; color:var(--text-secondary); margin-top:0.35rem; line-height:1.5;">
           ${currentStrategy === 'avalanche' 
@@ -787,12 +935,58 @@ function renderStrategyTab() {
     <div class="strategy-result-panel">
       <div>
         <h3 style="font-size:1.15rem; font-weight:700; display:flex; align-items:center; gap:0.5rem;">
-          <i class="fa-solid fa-flag-checkered" style="color:var(--accent-emerald);"></i> Proyección de Liquidación
+          <i class="fa-solid fa-flag-checkered" style="color:var(--accent-emerald);"></i> Proyección y Simulación
         </h3>
         <p style="font-size:0.8rem; color:var(--text-secondary); margin-top:0.25rem;">
-          Simulación paso a paso de qué deuda pagar primero y cuándo quedarás libre de deudas.
+          Simulación matemática paso a paso de tu salida de deudas con los abonos fijos y extras programados.
         </p>
       </div>
+
+      ${(settings.monthlyExtras && settings.monthlyExtras.length > 0) ? `
+        <!-- Accelerated Impact Banner -->
+        <div class="simulation-impact-card">
+          <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
+            <div style="font-size:0.85rem; font-weight:800; color:var(--accent-emerald); display:flex; align-items:center; gap:0.45rem;">
+              <i class="fa-solid fa-rocket"></i> IMPACTO DE TUS INGRESOS EXTRAS PROGRAMADOS
+            </div>
+            <span style="font-size:0.75rem; background:rgba(16,185,129,0.25); color:#6ee7b7; padding:0.2rem 0.5rem; border-radius:6px; font-weight:700;">
+              ${settings.monthlyExtras.length} bono${settings.monthlyExtras.length > 1 ? 's' : ''} aplicado${settings.monthlyExtras.length > 1 ? 's' : ''}
+            </span>
+          </div>
+
+          <div class="impact-stats-grid">
+            <div class="impact-stat-item">
+              <div class="impact-stat-label">Tiempo Ahorrado</div>
+              <div class="impact-stat-val" style="color:var(--accent-emerald);">
+                ${monthsSaved > 0 ? `-${monthsSaved} Meses` : 'Mismo mes'}
+              </div>
+              <div style="font-size:0.7rem; color:var(--text-muted); margin-top:0.15rem;">
+                Sales en ${simulation.totalMonths} meses (vs ${baselineSimulation.totalMonths} meses base)
+              </div>
+            </div>
+
+            <div class="impact-stat-item">
+              <div class="impact-stat-label">Ahorro en Intereses</div>
+              <div class="impact-stat-val" style="color:#38bdf8;">
+                ${formatCurrency(interestSaved, 'DOP')}
+              </div>
+              <div style="font-size:0.7rem; color:var(--text-muted); margin-top:0.15rem;">
+                Intereses que no pagarás al banco
+              </div>
+            </div>
+
+            <div class="impact-stat-item">
+              <div class="impact-stat-label">Total Bonos Extras</div>
+              <div class="impact-stat-val" style="color:var(--accent-amber);">
+                ${formatCurrency(totalExtraInjectedBonuses, 'DOP')}
+              </div>
+              <div style="font-size:0.7rem; color:var(--text-muted); margin-top:0.15rem;">
+                Inyectados directamente a capital
+              </div>
+            </div>
+          </div>
+        </div>
+      ` : ''}
 
       <div class="result-summary-cards">
         <div class="res-card">
@@ -806,7 +1000,7 @@ function renderStrategyTab() {
         <div class="res-card">
           <div class="res-title">Intereses Totales Proyectados</div>
           <div class="res-val" style="color:var(--accent-rose);">${formatCurrency(simulation.totalInterestPaidDOP, 'DOP')}</div>
-          <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.2rem;">Con pagos continuos</div>
+          <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.2rem;">Con pagos y abonos simulados</div>
         </div>
 
         <div class="res-card">
@@ -889,6 +1083,68 @@ function renderStrategyTab() {
         </div>
       </div>
 
+      <!-- Monthly Simulation Schedule Table -->
+      <div style="margin-top: 0.5rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; flex-wrap:wrap; gap:0.5rem;">
+          <div style="font-size:0.95rem; font-weight:700; color:var(--text-primary); display:flex; align-items:center; gap:0.45rem;">
+            <i class="fa-solid fa-table-list" style="color:var(--accent-cyan);"></i> Proyección Mes a Mes de la Simulación
+          </div>
+          <span style="font-size:0.75rem; color:var(--text-muted);">
+            Evolución de saldos con tus bonos e intereses
+          </span>
+        </div>
+
+        <div class="schedule-table-wrap">
+          <table class="schedule-table">
+            <thead>
+              <tr>
+                <th>Mes Calendario</th>
+                <th>Abono Inyectado</th>
+                <th>Interés del Mes</th>
+                <th>Cuentas Liquidadas</th>
+                <th style="text-align:right;">Saldo Restante Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${simulation.monthlySchedule.slice(0, 36).map(row => {
+                const label = getSimulationMonthLabel(row.month);
+                const hasBonus = row.bonusThisMonth > 0;
+                const hasPaidDebts = row.debtsPaidThisMonth && row.debtsPaidThisMonth.length > 0;
+                return `
+                  <tr class="${hasBonus ? 'has-bonus' : ''}">
+                    <td>
+                      <strong style="color:#fff;">${label}</strong>
+                    </td>
+                    <td>
+                      <div style="font-family:var(--font-heading); font-weight:700; color:${hasBonus ? 'var(--accent-emerald)' : 'var(--text-primary)'};">
+                        ${formatCurrency(row.totalExtraThisMonth, 'DOP')}
+                      </div>
+                      ${hasBonus ? `<span style="font-size:0.65rem; background:rgba(16,185,129,0.25); color:#6ee7b7; padding:0.1rem 0.35rem; border-radius:3px; font-weight:700;">+${formatCurrency(row.bonusThisMonth, 'DOP')} Extra</span>` : ''}
+                    </td>
+                    <td style="color:var(--accent-rose); font-weight:600;">
+                      ${formatCurrency(row.interestThisMonth, 'DOP')}
+                    </td>
+                    <td>
+                      ${hasPaidDebts ? `
+                        <div style="display:flex; flex-direction:column; gap:0.25rem;">
+                          ${row.debtsPaidThisMonth.map(dName => `
+                            <span style="font-size:0.72rem; background:rgba(16,185,129,0.2); color:#6ee7b7; padding:0.15rem 0.45rem; border-radius:4px; font-weight:700; display:inline-flex; align-items:center; gap:0.3rem;">
+                              <i class="fa-solid fa-check"></i> ${dName}
+                            </span>
+                          `).join('')}
+                        </div>
+                      ` : '<span style="color:var(--text-muted); font-size:0.75rem;">—</span>'}
+                    </td>
+                    <td style="text-align:right; font-family:var(--font-heading); font-weight:700; color:var(--text-primary);">
+                      ${formatCurrency(row.totalRemainingBalance, 'DOP')}
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       <!-- Priority Order Timeline -->
       <div>
@@ -944,6 +1200,21 @@ function renderStrategyTab() {
     settings.extraMonthlyPaymentDOP = val;
     saveSettings();
     renderApp();
+  });
+
+  // Extra Income simulation buttons
+  const addExtraBtn = document.getElementById('btn-open-add-extra');
+  if (addExtraBtn) {
+    addExtraBtn.addEventListener('click', () => {
+      openExtraIncomeModal();
+    });
+  }
+
+  mount.querySelectorAll('.btn-delete-extra').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteExtraIncome(btn.dataset.id);
+    });
   });
 
   const quickPayBtn = document.getElementById('btn-quick-pay-target');
@@ -1304,6 +1575,106 @@ function handleConfirmPay() {
   syncSaveDebt(debt);
   closePayModal();
   renderApp();
+}
+
+// Extra Income Simulation Handlers
+function openExtraIncomeModal(extraId = null) {
+  const modal = document.getElementById('extra-income-modal');
+  if (!modal) return;
+  const idInput = document.getElementById('form-extra-id');
+  const nameInput = document.getElementById('form-extra-name');
+  const monthSelect = document.getElementById('form-extra-month');
+  const amountInput = document.getElementById('form-extra-amount');
+  const recurringCheck = document.getElementById('form-extra-recurring');
+
+  // Populate month options (1 to 24)
+  monthSelect.innerHTML = Array.from({ length: 24 }, (_, i) => {
+    const m = i + 1;
+    const label = getSimulationMonthLabel(m);
+    return `<option value="${m}">${label}</option>`;
+  }).join('');
+
+  if (extraId) {
+    const item = (settings.monthlyExtras || []).find(e => e.id === extraId);
+    if (item) {
+      idInput.value = item.id;
+      nameInput.value = item.name;
+      monthSelect.value = item.monthOffset;
+      amountInput.value = item.amountDOP;
+      recurringCheck.checked = !!item.isRecurring;
+    }
+  } else {
+    idInput.value = '';
+    nameInput.value = '';
+    monthSelect.value = '3'; // Default to Month 3 (Diciembre / Doble sueldo)
+    amountInput.value = '';
+    recurringCheck.checked = false;
+  }
+
+  modal.classList.add('open');
+}
+
+function closeExtraIncomeModal() {
+  const modal = document.getElementById('extra-income-modal');
+  if (modal) modal.classList.remove('open');
+}
+
+function saveExtraIncomeFromModal() {
+  const idInput = document.getElementById('form-extra-id');
+  const nameInput = document.getElementById('form-extra-name');
+  const monthSelect = document.getElementById('form-extra-month');
+  const amountInput = document.getElementById('form-extra-amount');
+  const recurringCheck = document.getElementById('form-extra-recurring');
+
+  const amount = parseFloat(amountInput.value);
+  if (isNaN(amount) || amount <= 0) {
+    alert('Por favor ingresa un monto válido mayor a 0 en RD$');
+    return;
+  }
+
+  const monthOffset = parseInt(monthSelect.value, 10) || 1;
+  const name = nameInput.value.trim() || 'Ingreso Extra';
+  const isRecurring = recurringCheck.checked;
+
+  if (!settings.monthlyExtras) settings.monthlyExtras = [];
+
+  if (idInput.value) {
+    const idx = settings.monthlyExtras.findIndex(e => e.id === idInput.value);
+    if (idx !== -1) {
+      settings.monthlyExtras[idx] = {
+        id: idInput.value,
+        name,
+        monthOffset,
+        amountDOP: amount,
+        isRecurring
+      };
+    }
+  } else {
+    settings.monthlyExtras.push({
+      id: `extra-${Date.now()}`,
+      name,
+      monthOffset,
+      amountDOP: amount,
+      isRecurring
+    });
+  }
+
+  // Sort by month
+  settings.monthlyExtras.sort((a, b) => a.monthOffset - b.monthOffset);
+
+  saveSettings();
+  closeExtraIncomeModal();
+  renderStrategyTab();
+  showToast(`¡Ingreso extra de RD$ ${amount.toLocaleString()} programado en ${getSimulationMonthLabel(monthOffset)}!`, 'fa-wand-magic-sparkles');
+}
+
+function deleteExtraIncome(id) {
+  if (confirm('¿Deseas eliminar este ingreso extra de la simulación?')) {
+    settings.monthlyExtras = (settings.monthlyExtras || []).filter(e => e.id !== id);
+    saveSettings();
+    renderStrategyTab();
+    showToast('Ingreso extra removido de la simulación');
+  }
 }
 
 // Initialize Cloud Sync & Realtime

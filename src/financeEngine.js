@@ -46,12 +46,32 @@ export function calculateSummary(debts, settings) {
 }
 
 /**
- * Simulates repayment timeline month-by-month
+ * Simulates repayment timeline month-by-month with support for scheduled one-time / recurring monthly extra income.
+ * @param {Array} debts List of debts
+ * @param {Object} settings Settings object with extraMonthlyPaymentDOP, monthlyExtras, etc.
+ * @param {String} customStrategy Optional strategy override
  */
 export function simulateRepayment(debts, settings, customStrategy = null) {
   const strategy = customStrategy || settings.strategy || 'avalanche';
   const rate = settings.usdToDopRate || 60.50;
-  const extraMoney = settings.extraMonthlyPaymentDOP || 0;
+  const baseExtraMoney = settings.extraMonthlyPaymentDOP || 0;
+  // monthlyExtras: array of { id, monthOffset, name, amountDOP, isRecurring } or map { [monthNumber]: amountDOP }
+  const monthlyExtras = settings.monthlyExtras || [];
+
+  // Helper to get total bonus for a given month number (1-based: Month 1 = Mes actual)
+  function getExtraBonusForMonth(m) {
+    let bonus = 0;
+    if (Array.isArray(monthlyExtras)) {
+      monthlyExtras.forEach(item => {
+        if (item.isRecurring) {
+          if (m >= (item.monthOffset || 1)) bonus += Number(item.amountDOP || 0);
+        } else {
+          if (Number(item.monthOffset) === m) bonus += Number(item.amountDOP || 0);
+        }
+      });
+    }
+    return bonus;
+  }
 
   // Clone active debts and standardize balances to DOP
   const simulationDebts = debts
@@ -66,37 +86,47 @@ export function simulateRepayment(debts, settings, customStrategy = null) {
 
   if (simulationDebts.length === 0) {
     return {
-      months: 0,
+      totalMonths: 0,
       totalInterestPaidDOP: 0,
-      payoffPlan: []
+      payoffOrder: [],
+      monthlySchedule: [],
+      totalExtraInjectedDOP: 0,
+      strategyUsed: strategy
     };
   }
 
   // Sort debts according to chosen strategy
   if (strategy === 'avalanche') {
-    // Highest interest rate first; if tie, lowest balance
     simulationDebts.sort((a, b) => b.interestRate - a.interestRate || a.currentBalanceDOP - b.currentBalanceDOP);
   } else {
-    // Snowball: lowest balance first
     simulationDebts.sort((a, b) => a.currentBalanceDOP - b.currentBalanceDOP);
   }
 
   let month = 0;
   let totalInterestAccrued = 0;
+  let totalExtraInjected = 0;
   const maxMonths = 120; // safety ceiling (10 years)
   let freedUpCashflow = 0;
 
   const payoffOrder = [];
+  const monthlySchedule = [];
 
   while (simulationDebts.some(d => d.currentBalanceDOP > 1) && month < maxMonths) {
     month++;
-    let currentMonthExtra = extraMoney + freedUpCashflow;
+    const bonusThisMonth = getExtraBonusForMonth(month);
+    const activeDebtsThisMonthCount = simulationDebts.filter(d => d.currentBalanceDOP > 1).length;
+    let currentMonthExtra = baseExtraMoney + bonusThisMonth + freedUpCashflow;
+    totalExtraInjected += (baseExtraMoney + bonusThisMonth);
+
+    let interestThisMonth = 0;
+    const debtsPaidThisMonth = [];
 
     // 1. Accrue monthly interest on each active debt
     simulationDebts.forEach(d => {
       if (d.currentBalanceDOP > 1) {
         const interest = d.currentBalanceDOP * d.monthlyRate;
         totalInterestAccrued += interest;
+        interestThisMonth += interest;
         d.currentBalanceDOP += interest;
       }
     });
@@ -110,14 +140,19 @@ export function simulateRepayment(debts, settings, customStrategy = null) {
           d.currentBalanceDOP = 0;
           d.paidOffMonth = month;
           freedUpCashflow += d.originalMinDOP;
-          payoffOrder.push({ ...d, monthCompleted: month });
+          if (!payoffOrder.some(p => p.id === d.id)) {
+            payoffOrder.push({ ...d, monthCompleted: month });
+          }
+          debtsPaidThisMonth.push(d.name);
         }
       }
     });
 
-    // 3. Dump extra money (and freed up cashflow) into current target priority debt
-    const targetDebt = simulationDebts.find(d => d.currentBalanceDOP > 1);
-    if (targetDebt && currentMonthExtra > 0) {
+    // 3. Dump extra money (base + bonus + freed up cashflow) into current target priority debt
+    while (currentMonthExtra > 0 && simulationDebts.some(d => d.currentBalanceDOP > 1)) {
+      const targetDebt = simulationDebts.find(d => d.currentBalanceDOP > 1);
+      if (!targetDebt) break;
+
       if (currentMonthExtra >= targetDebt.currentBalanceDOP) {
         currentMonthExtra -= targetDebt.currentBalanceDOP;
         freedUpCashflow += targetDebt.originalMinDOP;
@@ -126,11 +161,25 @@ export function simulateRepayment(debts, settings, customStrategy = null) {
         if (!payoffOrder.some(p => p.id === targetDebt.id)) {
           payoffOrder.push({ ...targetDebt, monthCompleted: month });
         }
+        if (!debtsPaidThisMonth.includes(targetDebt.name)) {
+          debtsPaidThisMonth.push(targetDebt.name);
+        }
       } else {
         targetDebt.currentBalanceDOP -= currentMonthExtra;
         currentMonthExtra = 0;
       }
     }
+
+    const totalRemainingBalance = simulationDebts.reduce((sum, d) => sum + d.currentBalanceDOP, 0);
+    monthlySchedule.push({
+      month,
+      bonusThisMonth,
+      totalExtraThisMonth: baseExtraMoney + bonusThisMonth,
+      freedUpCashflow,
+      interestThisMonth: Math.round(interestThisMonth),
+      totalRemainingBalance: Math.round(totalRemainingBalance),
+      debtsPaidThisMonth
+    });
   }
 
   // Any remaining not marked as completed
@@ -144,6 +193,8 @@ export function simulateRepayment(debts, settings, customStrategy = null) {
     totalMonths: month,
     totalInterestPaidDOP: Math.round(totalInterestAccrued),
     payoffOrder,
+    monthlySchedule,
+    totalExtraInjectedDOP: Math.round(totalExtraInjected),
     strategyUsed: strategy
   };
 }
@@ -155,7 +206,18 @@ export function simulateRepayment(debts, settings, customStrategy = null) {
 export function calculateCurrentMonthDistribution(debts, settings) {
   const strategy = settings.strategy || 'avalanche';
   const rate = settings.usdToDopRate || 60.50;
-  const extraMoneyTotalDOP = settings.extraMonthlyPaymentDOP || 0;
+  
+  // Calculate total extra budget for Month 1 including any scheduled bonus for Month 1
+  let bonusMonth1 = 0;
+  if (Array.isArray(settings.monthlyExtras)) {
+    settings.monthlyExtras.forEach(item => {
+      if (item.isRecurring || Number(item.monthOffset) === 1) {
+        bonusMonth1 += Number(item.amountDOP || 0);
+      }
+    });
+  }
+  const extraMoneyTotalDOP = (settings.extraMonthlyPaymentDOP || 0) + bonusMonth1;
+
 
   // Active debts sorted by strategy
   const active = debts

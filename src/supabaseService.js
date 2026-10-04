@@ -133,7 +133,8 @@ export async function syncFetchSettings() {
       monthlyIncomeDOP: parseFloat(data.monthly_income_dop),
       usdToDopRate: parseFloat(data.usd_to_dop_rate),
       extraMonthlyPaymentDOP: parseFloat(data.extra_monthly_payment_dop),
-      strategy: data.strategy
+      strategy: data.strategy,
+      monthlyExtras: Array.isArray(data.monthly_extras) ? data.monthly_extras : []
     };
   } catch (e) {
     console.warn('Could not sync settings from cloud:', e);
@@ -149,6 +150,7 @@ export async function syncSaveSettings(settings) {
       usd_to_dop_rate: settings.usdToDopRate,
       extra_monthly_payment_dop: settings.extraMonthlyPaymentDOP,
       strategy: settings.strategy,
+      monthly_extras: settings.monthlyExtras || [],
       updated_at: new Date().toISOString()
     });
   } catch (e) {
