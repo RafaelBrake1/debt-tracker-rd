@@ -3,10 +3,10 @@ import confetti from 'canvas-confetti';
 import { INITIAL_DEBTS, INITIAL_SETTINGS } from './debtsData.js';
 import { calculateSummary, simulateRepayment, calculateCurrentMonthDistribution, formatCurrency } from './financeEngine.js';
 
-// Storage keys
-const STORAGE_DEBTS_KEY = 'deudazero_rd_debts';
-const STORAGE_SETTINGS_KEY = 'deudazero_rd_settings';
-const STORAGE_PAID_DUE_KEY = 'deudazero_rd_paid_due_dates';
+// Storage keys (v2 with User's verified base data)
+const STORAGE_DEBTS_KEY = 'deudazero_rd_debts_v2';
+const STORAGE_SETTINGS_KEY = 'deudazero_rd_settings_v2';
+const STORAGE_PAID_DUE_KEY = 'deudazero_rd_paid_due_dates_v2';
 
 // Load or initialize state
 let debts = loadDebts();
