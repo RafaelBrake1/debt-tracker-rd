@@ -115,6 +115,10 @@ function renderApp() {
             <i class="fa-solid fa-plus"></i> Nueva Deuda
           </button>
 
+          <button id="btn-save-as-base" class="btn btn-secondary" title="Exportar o guardar los datos actuales como los datos base permanentes" style="font-size:0.8rem; border-color: rgba(6,182,212,0.4); color: #67e8f9;">
+            <i class="fa-solid fa-floppy-disk"></i> Guardar como Base
+          </button>
+
           <button id="btn-reset-data" class="btn btn-secondary" title="Restaurar datos originales a valores iniciales" style="font-size:0.8rem; border-color: rgba(244,63,94,0.3); color: #fca5a5;">
             <i class="fa-solid fa-rotate-right"></i> Restaurar Valores
           </button>
@@ -443,6 +447,20 @@ function attachAppListeners() {
       }
     }
   });
+
+  // Save / Export Current Data as Base
+  const saveAsBaseBtn = document.getElementById('btn-save-as-base');
+  if (saveAsBaseBtn) {
+    saveAsBaseBtn.addEventListener('click', () => {
+      const exportJson = JSON.stringify(debts, null, 2);
+      navigator.clipboard.writeText(exportJson).then(() => {
+        alert('✅ ¡Datos copiados al portapapeles!\n\nPega este texto en el chat conmigo para dejarlos grabados permanentemente en el código base.');
+        showToast('JSON copiado al portapapeles', 'fa-copy');
+      }).catch(() => {
+        prompt('Copia estos datos y pégalos en el chat conmigo:', exportJson);
+      });
+    });
+  }
 
   // Reset Data to defaults
   document.getElementById('btn-reset-data').addEventListener('click', () => {
