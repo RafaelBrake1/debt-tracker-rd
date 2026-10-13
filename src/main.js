@@ -1,7 +1,15 @@
 import './style.css';
 import confetti from 'canvas-confetti';
 import { INITIAL_DEBTS, INITIAL_SETTINGS } from './debtsData.js';
-import { calculateSummary, simulateRepayment, calculateCurrentMonthDistribution, formatCurrency } from './financeEngine.js';
+import {
+  calculateSummary,
+  simulateRepayment,
+  calculateCurrentMonthDistribution,
+  formatCurrency,
+  calculateMilestones,
+  calculateCreditUtilization,
+  calculateSmartFloat
+} from './financeEngine.js';
 import {
   supabase,
   syncFetchDebts,
@@ -28,6 +36,7 @@ let isCloudSynced = false;
 let currentFilter = 'all';
 let currentTab = 'debts-tab';
 let editingDebtId = null;
+let selectedFloatSimDay = null; // null defaults to current day of the month
 
 function loadPaidDueDates() {
   const saved = localStorage.getItem(STORAGE_PAID_DUE_KEY);
@@ -109,6 +118,7 @@ function showToast(message, icon = 'fa-check-circle') {
 function renderApp() {
   const app = document.getElementById('app');
   const summary = calculateSummary(debts, settings);
+  const milestonesData = calculateMilestones(debts, settings);
 
   app.innerHTML = `
     <!-- Header -->
@@ -224,6 +234,48 @@ function renderApp() {
             <div class="metric-sub">Tras mínimos (${formatCurrency(settings.extraMonthlyPaymentDOP, 'DOP')} para abono extra)</div>
           </div>
         </div>
+
+        <!-- Feature 5: Milestones Track -->
+        <div class="milestones-section">
+          <div class="milestones-header">
+            <div class="milestones-title-group">
+              <span class="milestones-title">
+                <i class="fa-solid fa-medal" style="color:var(--accent-amber);"></i>
+                HITOS Y MEDALLAS DE PROGRESO
+              </span>
+              <span style="font-size:0.75rem; background:rgba(255,255,255,0.06); color:var(--text-secondary); padding:0.2rem 0.5rem; border-radius:12px; font-weight:700;">
+                ${milestonesData.completedCount} de ${milestonesData.totalMilestones} Desbloqueados (${milestonesData.overallPercent}%)
+              </span>
+            </div>
+
+            <div class="milestones-bar-wrap">
+              <div class="milestones-bar-track">
+                <div class="milestones-bar-fill" style="width: ${milestonesData.overallPercent}%;"></div>
+              </div>
+              <span style="font-size:0.8rem; font-weight:800; color:var(--accent-emerald); font-family:var(--font-heading);">${milestonesData.overallPercent}%</span>
+            </div>
+          </div>
+
+          <div class="milestones-grid">
+            ${milestonesData.milestones.map((m, idx) => `
+              <div class="milestone-card ${m.isCompleted ? 'completed' : ''}">
+                <div class="milestone-top">
+                  <div class="milestone-icon-pill" style="background:${m.isCompleted ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.06)'}; color:${m.isCompleted ? 'var(--accent-emerald)' : m.badgeColor};">
+                    <i class="fa-solid ${m.icon}"></i>
+                  </div>
+                  <span class="milestone-badge" style="background:${m.isCompleted ? 'rgba(16,185,129,0.25)' : 'rgba(255,255,255,0.05)'}; color:${m.isCompleted ? '#6ee7b7' : 'var(--text-muted)'};">
+                    ${m.isCompleted ? '<i class="fa-solid fa-check"></i> LOGRADO' : `HITO ${idx + 1}`}
+                  </span>
+                </div>
+                <div class="milestone-name">${m.title}</div>
+                <div class="milestone-desc">${m.targetDescription}</div>
+                <div class="milestone-progress" style="color:${m.isCompleted ? 'var(--accent-emerald)' : 'var(--accent-cyan)'};">
+                  ${m.progressText}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
       </section>
 
       <!-- Navigation Tabs -->
@@ -246,6 +298,9 @@ function renderApp() {
 
       <!-- TAB 1: DEBTS LIST & TRACKER -->
       <div id="debts-tab" class="tab-content ${currentTab === 'debts-tab' ? 'active' : ''}">
+        <!-- Feature 6: Credit Utilization Mount -->
+        <div id="credit-utilization-mount"></div>
+
         <div class="filter-controls-bar">
           <div class="filter-group">
             <span style="font-size: 0.8rem; color: var(--text-muted); font-weight:600;">Filtrar por:</span>
@@ -503,6 +558,7 @@ function renderApp() {
 
   // Attach App-Level Listeners
   attachAppListeners();
+  renderCreditUtilization();
   renderDebtsCards();
   renderStrategyTab();
   renderCalendarTab();
@@ -631,6 +687,63 @@ function attachAppListeners() {
   });
 }
 
+// Render Credit Utilization Gauge (Buró / DataCrédito)
+function renderCreditUtilization() {
+  const mount = document.getElementById('credit-utilization-mount');
+  if (!mount) return;
+
+  const util = calculateCreditUtilization(debts, settings);
+
+  mount.innerHTML = `
+    <div class="credit-utilization-card">
+      <div class="utilization-header">
+        <div class="utilization-title">
+          <i class="fa-solid fa-gauge-high" style="color:${util.tierColor};"></i>
+          <span>Utilización de Crédito y Salud ante Buró</span>
+        </div>
+        <span style="font-size:0.75rem; background:rgba(255,255,255,0.06); color:${util.tierColor}; padding:0.25rem 0.65rem; border-radius:12px; font-weight:800; border:1px solid ${util.tierColor};">
+          ${util.overallRatio}% • ${util.tierLabel}
+        </span>
+      </div>
+
+      <div>
+        <div class="utilization-gauge-track">
+          <div class="utilization-gauge-fill" style="width: ${Math.min(util.overallRatio, 100)}%; background: ${util.tierColor};"></div>
+        </div>
+        <div class="utilization-markers">
+          <span>0% (Libre)</span>
+          <span>30% (Excelente)</span>
+          <span>50% (Moderado)</span>
+          <span>75% (Alerta Buró)</span>
+          <span>100%+ (Sobregiro)</span>
+        </div>
+      </div>
+
+      <div class="utilization-metrics-row">
+        <div class="util-metric-box">
+          <div class="util-metric-label">Línea de Crédito Total</div>
+          <div class="util-metric-val" style="color:var(--text-primary);">${formatCurrency(util.totalLimitDOP, 'DOP')}</div>
+        </div>
+        <div class="util-metric-box">
+          <div class="util-metric-label">Saldo en Tarjetas</div>
+          <div class="util-metric-val" style="color:${util.tierColor};">${formatCurrency(util.totalBalanceDOP, 'DOP')}</div>
+        </div>
+        <div class="util-metric-box">
+          <div class="util-metric-label">Crédito Disponible</div>
+          <div class="util-metric-val" style="color:var(--accent-emerald);">${formatCurrency(util.totalAvailableDOP, 'DOP')}</div>
+        </div>
+      </div>
+
+      <div class="utilization-advice-box">
+        <strong style="color:#fff;"><i class="fa-solid fa-lightbulb" style="color:var(--accent-cyan);"></i> Diagnóstico Bancario:</strong> ${util.advice}
+        ${util.toUnder100 > 0 ? `<br><span style="color:#fca5a5; font-weight:600;"><i class="fa-solid fa-triangle-exclamation"></i> Meta Inmediata: Abona <strong>${formatCurrency(util.toUnder100, 'DOP')}</strong> para eliminar los sobregiros y parar comisiones bancarias.</span>` : ''}
+        ${util.toUnder100 === 0 && util.toUnder75 > 0 ? `<br><span style="color:#fcd34d; font-weight:600;"><i class="fa-solid fa-arrow-down"></i> Meta Buró: Abona <strong>${formatCurrency(util.toUnder75, 'DOP')}</strong> para bajar del 75% y que DataCrédito/TransUnion mejore tu score.</span>` : ''}
+        ${util.toUnder75 === 0 && util.toUnder30 > 0 ? `<br><span style="color:#6ee7b7; font-weight:600;"><i class="fa-solid fa-star"></i> Meta Óptima: Abona <strong>${formatCurrency(util.toUnder30, 'DOP')}</strong> para entrar en la zona &lt;30% que los bancos adoran.</span>` : ''}
+      </div>
+    </div>
+  `;
+}
+
 // Render Debts Cards List
 function renderDebtsCards() {
   const container = document.getElementById('debts-cards-container');
@@ -738,6 +851,18 @@ function renderDebtsCards() {
               <span class="detail-label">Fecha Límite Pago</span>
               <span class="detail-val">Día ${d.dueDay} de cada mes</span>
             </div>
+            ${d.category === 'credit_card' ? `
+              <div class="detail-item">
+                <span class="detail-label">Fecha de Corte</span>
+                <span class="detail-val" style="color:var(--accent-cyan); font-weight:700;">Día ${d.cutoffDay}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Crédito Disponible</span>
+                <span class="detail-val" style="color:${d.balance > d.creditLimit ? 'var(--accent-rose)' : 'var(--accent-emerald)'}; font-weight:700;">
+                  ${d.balance > d.creditLimit ? `Excedido: ${formatCurrency(d.balance - d.creditLimit, d.currency)}` : formatCurrency(d.creditLimit - d.balance, d.currency)}
+                </span>
+              </div>
+            ` : ''}
           </div>
 
           ${d.notes ? `
@@ -1241,6 +1366,7 @@ function renderCalendarTab() {
   if (!mount) return;
 
   const rate = settings.usdToDopRate || 60.50;
+  const smartFloat = calculateSmartFloat(debts, settings, selectedFloatSimDay);
 
   // Active debts sorted by dueDay
   const activeDebts = debts
@@ -1257,6 +1383,90 @@ function renderCalendarTab() {
   const halfIncome = (settings.monthlyIncomeDOP || 58000) / 2;
 
   mount.innerHTML = `
+    <!-- Top Feature: Smart Float & Billing Cycle Assistant -->
+    <div class="smart-float-card">
+      <div class="float-header">
+        <div>
+          <h3 style="font-size:1.15rem; font-weight:700; display:flex; align-items:center; gap:0.5rem;">
+            <i class="fa-solid fa-arrows-spin" style="color:var(--accent-cyan);"></i>
+            Calculadora de Jineteo Inteligente & Ciclo de Facturación
+          </h3>
+          <p style="font-size:0.8rem; color:var(--text-secondary); margin-top:0.25rem;">
+            Maximiza hasta 45-55 días de financiamiento libre de intereses sabiendo qué tarjeta usar según su fecha de corte.
+          </p>
+        </div>
+        <div style="display:flex; align-items:center; gap:0.5rem;">
+          <label for="float-sim-day-select" style="font-size:0.8rem; color:var(--text-muted); font-weight:600;">Simular compra en día:</label>
+          <select id="float-sim-day-select" class="form-control" style="width:auto; padding:0.3rem 0.6rem; font-size:0.82rem; background:rgba(255,255,255,0.06); border-radius:var(--radius-sm); color:#fff;">
+            ${Array.from({length: 31}, (_, i) => i + 1).map(day => `
+              <option value="${day}" ${day === smartFloat.todayDay ? 'selected' : ''}>Día ${day} ${day === new Date().getDate() ? '(Hoy)' : ''}</option>
+            `).join('')}
+          </select>
+        </div>
+      </div>
+
+      ${smartFloat.recommendedCard ? `
+        <div class="float-spotlight-box">
+          <div class="float-spotlight-left">
+            <span class="float-tag-best"><i class="fa-solid fa-star"></i> Tarjeta Recomendada para Gastos (Día ${smartFloat.todayDay})</span>
+            <div style="font-size:1.2rem; font-weight:800; color:#fff; margin-top:0.25rem;">
+              ${smartFloat.recommendedCard.name}
+            </div>
+            <div style="font-size:0.8rem; color:var(--text-secondary);">
+              ${smartFloat.recommendedCard.institution} • Corte día <strong>${smartFloat.recommendedCard.cutoffDay}</strong> • Límite de pago día <strong>${smartFloat.recommendedCard.dueDay}</strong>
+            </div>
+            <div style="font-size:0.82rem; color:var(--accent-emerald); font-weight:600; margin-top:0.2rem;">
+              Disponible: ${formatCurrency(smartFloat.recommendedCard.availableDOP, 'DOP')}
+            </div>
+          </div>
+          <div style="text-align:right;">
+            <div class="float-days-big">${smartFloat.recommendedCard.totalFloatDays} DÍAS</div>
+            <div style="font-size:0.75rem; color:var(--text-secondary); font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">de Gracia sin Intereses</div>
+          </div>
+        </div>
+      ` : `
+        <div style="padding:1rem; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:var(--radius-md); font-size:0.85rem; color:#fca5a5;">
+          <i class="fa-solid fa-triangle-exclamation" style="margin-right:0.5rem;"></i>
+          No hay tarjetas de crédito con balance disponible para financiamiento libre de intereses en este momento (todas copadas o sobregiradas).
+        </div>
+      `}
+
+      <!-- Grid of all credit cards analysis -->
+      <div style="font-size:0.82rem; font-weight:700; color:var(--text-secondary); margin-top:0.25rem;">
+        Diagnóstico por Tarjeta para compras el Día ${smartFloat.todayDay}:
+      </div>
+      <div class="float-cards-grid">
+        ${smartFloat.allCards.map(c => {
+          const isRec = smartFloat.recommendedCard && smartFloat.recommendedCard.id === c.id;
+          return `
+            <div class="float-item-card ${isRec ? 'is-best' : ''} ${c.isOverlimit ? 'is-danger' : ''}">
+              <div>
+                <div style="font-weight:700; font-size:0.88rem; display:flex; align-items:center; gap:0.4rem;">
+                  ${c.name}
+                  ${isRec ? '<span style="font-size:0.65rem; background:var(--accent-cyan); color:#000; padding:1px 5px; border-radius:3px; font-weight:800;">ÓPTIMA</span>' : ''}
+                  ${c.isOverlimit ? '<span style="font-size:0.65rem; background:var(--accent-rose); color:#fff; padding:1px 5px; border-radius:3px; font-weight:800;">SOBREGIRADA</span>' : ''}
+                </div>
+                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
+                  Corte: Día ${c.cutoffDay} | Pago: Día ${c.dueDay}
+                </div>
+                <div style="font-size:0.72rem; margin-top:4px; color:${c.isOverlimit ? 'var(--accent-rose)' : c.daysUntilCutoff <= 3 ? 'var(--accent-amber)' : 'var(--text-secondary)'};">
+                  ${c.statusLabel}
+                </div>
+              </div>
+              <div style="text-align:right; min-width:85px;">
+                <div style="font-size:1.1rem; font-weight:800; color:${c.isOverlimit ? 'var(--text-muted)' : 'var(--accent-emerald)'};">
+                  ${c.isOverlimit ? '0' : c.totalFloatDays}d
+                </div>
+                <div style="font-size:0.7rem; color:var(--text-muted);">
+                  ${c.isOverlimit ? 'Sobrecupo' : 'Plazo libre'}
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+
     <!-- Left Calendar Schedule -->
     <div class="payment-calendar-card">
       <div class="calendar-header-title">
@@ -1413,6 +1623,15 @@ function renderCalendarTab() {
         renderCalendarTab();
         showToast('Checks del mes reiniciados.');
       }
+    });
+  }
+
+  // Float sim day select
+  const floatDaySelect = document.getElementById('float-sim-day-select');
+  if (floatDaySelect) {
+    floatDaySelect.addEventListener('change', (e) => {
+      selectedFloatSimDay = parseInt(e.target.value, 10);
+      renderCalendarTab();
     });
   }
 }
