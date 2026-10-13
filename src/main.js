@@ -1117,9 +1117,10 @@ function renderStrategyTab() {
                     </td>
                     <td>
                       <div style="font-family:var(--font-heading); font-weight:700; color:${hasBonus ? 'var(--accent-emerald)' : 'var(--text-primary)'};">
-                        ${formatCurrency(row.totalExtraThisMonth, 'DOP')}
+                        ${formatCurrency(row.totalExtraThisMonth + (row.freedUpCashflow || 0), 'DOP')}
                       </div>
-                      ${hasBonus ? `<span style="font-size:0.65rem; background:rgba(16,185,129,0.25); color:#6ee7b7; padding:0.1rem 0.35rem; border-radius:3px; font-weight:700;">+${formatCurrency(row.bonusThisMonth, 'DOP')} Extra</span>` : ''}
+                      ${hasBonus ? `<span style="font-size:0.65rem; background:rgba(16,185,129,0.25); color:#6ee7b7; padding:0.1rem 0.35rem; border-radius:3px; font-weight:700;">+${formatCurrency(row.bonusThisMonth, 'DOP')} Bono Extra</span>` : ''}
+                      ${row.freedUpCashflow > 0 ? `<div style="font-size:0.68rem; color:var(--accent-cyan); margin-top:0.15rem; font-weight:600;"><i class="fa-solid fa-arrows-spin"></i> +${formatCurrency(row.freedUpCashflow, 'DOP')} de cuotas saldadas</div>` : ''}
                     </td>
                     <td style="color:var(--accent-rose); font-weight:600;">
                       ${formatCurrency(row.interestThisMonth, 'DOP')}
