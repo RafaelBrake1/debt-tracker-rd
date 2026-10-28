@@ -1591,24 +1591,32 @@ function renderCalendarTab() {
 
   // Attach check button listeners
   mount.querySelectorAll('.calendar-check-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const debtId = btn.dataset.calendarId;
+      const debt = debts.find(d => d.id === debtId);
+      if (!debt) return;
       const willBeChecked = !paidDueDates.includes(debtId);
+
       if (!willBeChecked) {
+        // Unmark: restore balance
         paidDueDates = paidDueDates.filter(id => id !== debtId);
-        showToast('Pago desmarcado.');
+        debt.balance = parseFloat((debt.balance + debt.minPayment).toFixed(2));
+        showToast(`Pago desmarcado. Saldo restaurado: ${formatCurrency(debt.balance, debt.currency)}`);
       } else {
+        // Mark: deduct minPayment from balance
         paidDueDates.push(debtId);
-        confetti({
-          particleCount: 50,
-          spread: 60,
-          origin: { y: 0.7 }
-        });
-        showToast('¡Pago de cuota mensual registrado con éxito!', 'fa-circle-check');
+        debt.balance = Math.max(0, parseFloat((debt.balance - debt.minPayment).toFixed(2)));
+        if (debt.balance === 0) debt.status = 'paid';
+        confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
+        showToast(`¡Pago registrado! Nuevo saldo: ${formatCurrency(debt.balance, debt.currency)}`, 'fa-circle-check');
       }
+
+      // Persist
+      saveDebts();
       savePaidDueDates();
       syncToggleMonthlyCheck(debtId, willBeChecked);
-      renderCalendarTab();
+      await syncSaveDebt(debt);
+      renderApp();
     });
   });
 
