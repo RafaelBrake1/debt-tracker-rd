@@ -6,14 +6,14 @@ export const INITIAL_DEBTS = [
     institution: "Banco Vimenca",
     category: "credit_card",
     currency: "DOP",
-    balance: 0,
+    balance: 38493.00,
     creditLimit: 39000,
-    minPayment: 3012,
+    minPayment: 3012.00,
     dueDay: 2,
     cutoffDay: 10,
     interestRate: 60,
-    notes: "Saldada mediante Préstamo de Consolidación RD$ 378k.",
-    status: "paid"
+    notes: "Corte día 10, pago día 2.",
+    status: "active"
   },
   {
     id: "vimenca-usd",
@@ -36,14 +36,14 @@ export const INITIAL_DEBTS = [
     institution: "Banco LAFISE",
     category: "credit_card",
     currency: "DOP",
-    balance: 0,
+    balance: 3688.64,
     creditLimit: 35000,
-    minPayment: 1815,
+    minPayment: 1815.00,
     dueDay: 14,
     cutoffDay: 5,
     interestRate: 60,
-    notes: "Saldada mediante Préstamo de Consolidación RD$ 378k.",
-    status: "paid"
+    notes: "Monto adeudado DOP 3,688.64",
+    status: "active"
   },
   {
     id: "mastercard-gold-dop",
@@ -96,14 +96,14 @@ export const INITIAL_DEBTS = [
     institution: "Capital One (*7180)",
     category: "credit_card",
     currency: "USD",
-    balance: 0,
+    balance: 499.00,
     creditLimit: 400,
     minPayment: 25,
     dueDay: 19,
     cutoffDay: 24,
     interestRate: 29.99,
-    notes: "Saldada mediante Préstamo de Consolidación RD$ 378k.",
-    status: "paid"
+    notes: "Due Oct 19.",
+    status: "active"
   },
   {
     id: "capital-one-savor",
@@ -111,14 +111,14 @@ export const INITIAL_DEBTS = [
     institution: "Capital One (*9149)",
     category: "credit_card",
     currency: "USD",
-    balance: 0,
+    balance: 497.23,
     creditLimit: 500,
     minPayment: 25,
     dueDay: 21,
     cutoffDay: 26,
     interestRate: 29.99,
-    notes: "Saldada mediante Préstamo de Consolidación RD$ 378k.",
-    status: "paid"
+    notes: "Due Oct 21.",
+    status: "active"
   },
   {
     id: "prestamo-poliza",
@@ -126,14 +126,14 @@ export const INITIAL_DEBTS = [
     institution: "Banco Promerica",
     category: "loan",
     currency: "DOP",
-    balance: 0,
+    balance: 5199.00,
     creditLimit: 10295.26,
     minPayment: 5427.59,
     dueDay: 26,
     cutoffDay: 15,
     interestRate: 24,
-    notes: "Saldada mediante Préstamo de Consolidación RD$ 378k.",
-    status: "paid"
+    notes: "Saldo restante muy bajo: solo RD$5,199.",
+    status: "active"
   },
   {
     id: "prestamo-personal-mayor",
@@ -168,10 +168,14 @@ export const INITIAL_DEBTS = [
 ];
 
 export const INITIAL_SETTINGS = {
-  monthlyIncomeDOP: 58000.00, // RD$ 58,000 mensuales
-  usdToDopRate: 60.50, // Tasa de cambio promedio DOP / USD
-  extraMonthlyPaymentDOP: 28000.00, // Capacidad de abono extra configurada
-  strategy: "avalanche", // "avalanche" (interés más alto primero) o "snowball" (saldo menor primero)
-  monthlyExtras: [] // Array of { id, monthOffset, name, amountDOP, isRecurring }
+  monthlyIncomeDOP: 72000.00,
+  usdToDopRate: 60.50,
+  extraMonthlyPaymentDOP: 30000.00,
+  strategy: "avalanche",
+  monthlyExtras: [
+    { id: "extra-1", monthOffset: 3, name: "Ingreso Extra", amountDOP: 58000, isRecurring: false },
+    { id: "extra-2", monthOffset: 6, name: "Bono de Desempeño", amountDOP: 58000, isRecurring: false },
+    { id: "extra-3", monthOffset: 6, name: "Ingreso Extra", amountDOP: 135000, isRecurring: false }
+  ]
 };
 

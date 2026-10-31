@@ -23,10 +23,10 @@ import {
   syncSeedDebts
 } from './supabaseService.js';
 
-// Storage keys (v3)
-const STORAGE_DEBTS_KEY = 'deudazero_rd_debts_v3';
-const STORAGE_SETTINGS_KEY = 'deudazero_rd_settings_v3';
-const STORAGE_PAID_DUE_KEY = 'deudazero_rd_paid_due_dates_v3';
+// Storage keys (v4)
+const STORAGE_DEBTS_KEY = 'deudazero_rd_debts_v4';
+const STORAGE_SETTINGS_KEY = 'deudazero_rd_settings_v4';
+const STORAGE_PAID_DUE_KEY = 'deudazero_rd_paid_due_dates_v4';
 
 // State
 let debts = loadDebts();
