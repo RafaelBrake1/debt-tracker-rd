@@ -6,14 +6,14 @@ export const INITIAL_DEBTS = [
     institution: "Banco Vimenca",
     category: "credit_card",
     currency: "DOP",
-    balance: 39200.91,
+    balance: 0,
     creditLimit: 39000,
-    minPayment: 1960,
+    minPayment: 3012,
     dueDay: 2,
     cutoffDay: 10,
     interestRate: 60,
-    notes: "Tarjeta sobregirada (límite RD$ 39k, balance RD$ 39.2k). Corte día 10, pago día 2.",
-    status: "active"
+    notes: "Saldada mediante Préstamo de Consolidación RD$ 378k.",
+    status: "paid"
   },
   {
     id: "vimenca-usd",
@@ -21,14 +21,14 @@ export const INITIAL_DEBTS = [
     institution: "Banco Vimenca",
     category: "credit_card",
     currency: "USD",
-    balance: 119.07,
+    balance: 0,
     creditLimit: 400,
     minPayment: 4,
     dueDay: 2,
     cutoffDay: 10,
     interestRate: 60,
-    notes: "Balance US$ 119.07, pago mínimo US$ 4.00.",
-    status: "active"
+    notes: "Saldada.",
+    status: "paid"
   },
   {
     id: "lafise-dop",
@@ -36,14 +36,14 @@ export const INITIAL_DEBTS = [
     institution: "Banco LAFISE",
     category: "credit_card",
     currency: "DOP",
-    balance: 36292.21,
+    balance: 0,
     creditLimit: 35000,
     minPayment: 1815,
     dueDay: 14,
     cutoffDay: 5,
     interestRate: 60,
-    notes: "Monto adeudado DOP 36,292.21",
-    status: "active"
+    notes: "Saldada mediante Préstamo de Consolidación RD$ 378k.",
+    status: "paid"
   },
   {
     id: "mastercard-gold-dop",
@@ -51,14 +51,14 @@ export const INITIAL_DEBTS = [
     institution: "Banco Comercial (*4780)",
     category: "credit_card",
     currency: "DOP",
-    balance: 35742.34,
+    balance: 0,
     creditLimit: 35000,
     minPayment: 3372,
     dueDay: 28,
     cutoffDay: 3,
     interestRate: 60,
-    notes: "Límite RD$35k, balance RD$35.7k. Pago mín RD$ 3,372.",
-    status: "active"
+    notes: "Saldada.",
+    status: "paid"
   },
   {
     id: "mastercard-gold-usd",
@@ -66,14 +66,14 @@ export const INITIAL_DEBTS = [
     institution: "Banco Comercial (*4780)",
     category: "credit_card",
     currency: "USD",
-    balance: 397.89,
+    balance: 0,
     creditLimit: 350,
     minPayment: 72.12,
     dueDay: 28,
     cutoffDay: 3,
     interestRate: 60,
-    notes: "Límite US$350, balance US$397.89. Sobregirada. Pago mín US$ 72.12.",
-    status: "active"
+    notes: "Saldada.",
+    status: "paid"
   },
   {
     id: "qik-dop",
@@ -81,14 +81,14 @@ export const INITIAL_DEBTS = [
     institution: "Qik Banco Digital (*8636)",
     category: "credit_card",
     currency: "DOP",
-    balance: 68303.73,
+    balance: 0,
     creditLimit: 70000,
-    minPayment: 3415,
+    minPayment: 5400,
     dueDay: 1,
     cutoffDay: 5,
     interestRate: 60,
-    notes: "Balance RD$ 68,303.73. Cashback acumulado RD$ 3,802.12.",
-    status: "active"
+    notes: "Saldada.",
+    status: "paid"
   },
   {
     id: "capital-one-platinum",
@@ -96,14 +96,14 @@ export const INITIAL_DEBTS = [
     institution: "Capital One (*7180)",
     category: "credit_card",
     currency: "USD",
-    balance: 492.64,
+    balance: 0,
     creditLimit: 400,
     minPayment: 25,
     dueDay: 19,
     cutoffDay: 24,
     interestRate: 29.99,
-    notes: "Over credit limit ($0 available). Due Oct 19.",
-    status: "active"
+    notes: "Saldada mediante Préstamo de Consolidación RD$ 378k.",
+    status: "paid"
   },
   {
     id: "capital-one-savor",
@@ -111,14 +111,14 @@ export const INITIAL_DEBTS = [
     institution: "Capital One (*9149)",
     category: "credit_card",
     currency: "USD",
-    balance: 491.49,
+    balance: 0,
     creditLimit: 500,
     minPayment: 25,
     dueDay: 21,
     cutoffDay: 26,
     interestRate: 29.99,
-    notes: "Card declined recently. Rewards cash: $4.44.",
-    status: "active"
+    notes: "Saldada mediante Préstamo de Consolidación RD$ 378k.",
+    status: "paid"
   },
   {
     id: "prestamo-poliza",
@@ -126,14 +126,14 @@ export const INITIAL_DEBTS = [
     institution: "Banco Promerica",
     category: "loan",
     currency: "DOP",
-    balance: 10295.26,
+    balance: 0,
     creditLimit: 10295.26,
     minPayment: 5427.59,
     dueDay: 26,
     cutoffDay: 15,
     interestRate: 24,
-    notes: "Saldo restante muy bajo: solo RD$10,295 (2 cuotas y queda saldado totalmente).",
-    status: "active"
+    notes: "Saldada mediante Préstamo de Consolidación RD$ 378k.",
+    status: "paid"
   },
   {
     id: "prestamo-personal-mayor",

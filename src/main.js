@@ -23,10 +23,10 @@ import {
   syncSeedDebts
 } from './supabaseService.js';
 
-// Storage keys (v2 fallback)
-const STORAGE_DEBTS_KEY = 'deudazero_rd_debts_v2';
-const STORAGE_SETTINGS_KEY = 'deudazero_rd_settings_v2';
-const STORAGE_PAID_DUE_KEY = 'deudazero_rd_paid_due_dates_v2';
+// Storage keys (v3)
+const STORAGE_DEBTS_KEY = 'deudazero_rd_debts_v3';
+const STORAGE_SETTINGS_KEY = 'deudazero_rd_settings_v3';
+const STORAGE_PAID_DUE_KEY = 'deudazero_rd_paid_due_dates_v3';
 
 // State
 let debts = loadDebts();
@@ -174,7 +174,7 @@ function renderApp() {
               <span style="font-size:0.75rem; background:rgba(6,182,212,0.15); color:var(--accent-cyan); padding:0.2rem 0.6rem; border-radius:12px; font-weight:700;">
                 PANEL FINANCIERO PERSONAL
               </span>
-              <span style="font-size:0.75rem; color:var(--text-muted);">Actualizado Octubre 2026</span>
+              <span style="font-size:0.75rem; color:var(--text-muted);">Actualizado ${new Date().toLocaleDateString('es-DO',{month:'long',year:'numeric'})}</span>
             </div>
             <h1>Plan de Liquidación Acelerada</h1>
             <p>Monitoreo unificado de tarjetas de crédito y préstamos con calendario de pagos y simulación de amortización.</p>
@@ -1278,19 +1278,65 @@ function renderStrategyTab() {
         if (!loan378) return '';
         const rate = settings.usdToDopRate || 60.50;
         const consolidationTargets = [
-          { id: 'qik-dop', label: 'Qik Banco Digital', rate: 60 },
-          { id: 'vimenca-dop', label: 'Vimenca (RD$)', rate: 60 },
-          { id: 'lafise-dop', label: 'LAFISE Mastercard', rate: 60 },
-          { id: 'mastercard-gold-dop', label: 'Mastercard Gold (RD$)', rate: 60 },
-          { id: 'mastercard-gold-usd', label: 'Mastercard Gold (US$)', rate: 60 },
-          { id: 'vimenca-usd', label: 'Vimenca (US$)', rate: 60 },
-          { id: 'capital-one-platinum', label: 'Capital One Platinum', rate: 29.99 },
-          { id: 'capital-one-savor', label: 'Capital One Savor', rate: 29.99 },
-          { id: 'prestamo-poliza', label: 'Préstamo Promerica', rate: 24 },
+          { id: 'qik-dop', label: 'Qik Banco Digital', rate: 60, origBal: 68303.73 },
+          { id: 'vimenca-dop', label: 'Vimenca (RD$)', rate: 60, origBal: 39200.91 },
+          { id: 'lafise-dop', label: 'LAFISE Mastercard', rate: 60, origBal: 36292.21 },
+          { id: 'mastercard-gold-dop', label: 'Mastercard Gold (RD$)', rate: 60, origBal: 35742.34 },
+          { id: 'mastercard-gold-usd', label: 'Mastercard Gold (US$)', rate: 60, origBal: 397.89 * rate },
+          { id: 'vimenca-usd', label: 'Vimenca (US$)', rate: 60, origBal: 119.07 * rate },
+          { id: 'capital-one-platinum', label: 'Capital One Platinum', rate: 29.99, origBal: 499 * rate },
+          { id: 'capital-one-savor', label: 'Capital One Savor', rate: 29.99, origBal: 497.23 * rate },
+          { id: 'prestamo-poliza', label: 'Préstamo Promerica', rate: 24, origBal: 10295.26 },
         ];
+
+        const activeTargets = consolidationTargets.filter(t => {
+          const d = debts.find(x => x.id === t.id);
+          return d && d.status !== 'paid' && d.balance > 0;
+        });
+
+        // If all 9 target accounts are already paid/saldadas
+        if (activeTargets.length === 0) {
+          return `
+          <div style="background:linear-gradient(135deg,rgba(16,185,129,0.15) 0%,rgba(6,182,212,0.12) 100%); border:2px solid var(--accent-emerald); border-radius:var(--radius-md); padding:1.35rem; display:flex; flex-direction:column; gap:0.9rem; margin-bottom:1.25rem; box-shadow:0 4px 20px rgba(16,185,129,0.15);">
+            <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
+              <span style="background:var(--accent-emerald); color:#000; font-weight:800; font-size:0.75rem; padding:0.25rem 0.65rem; border-radius:6px; text-transform:uppercase;">
+                <i class="fa-solid fa-circle-check"></i> CONSOLIDACIÓN COMPLETADA
+              </span>
+              <span style="font-size:0.8rem; color:#6ee7b7; font-weight:700;">
+                <i class="fa-solid fa-shield-halved"></i> ¡Cero Tarjetas al 60%!
+              </span>
+            </div>
+            <div>
+              <h4 style="font-size:1.05rem; font-weight:800; color:#fff; margin-bottom:0.3rem;">
+                ¡Todas tus tarjetas y deudas de alta tasa han sido saldadas!
+              </h4>
+              <p style="font-size:0.82rem; color:var(--text-secondary); line-height:1.45; margin:0;">
+                El Préstamo de <strong>RD$ 378,000 (16.9% anual)</strong> absorbió exitosamente tus tarjetas de crédito y préstamos caros. Erradicaste el interés usurero del 60% anual bancario.
+              </p>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:0.75rem; margin-top:0.25rem;">
+              <div style="background:rgba(0,0,0,0.3); border-radius:var(--radius-sm); padding:0.75rem; text-align:center;">
+                <div style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Cuentas Erradicadas</div>
+                <div style="font-size:1.2rem; font-weight:800; color:var(--accent-emerald); margin-top:0.2rem;">9 de 9 Saldadas</div>
+                <div style="font-size:0.68rem; color:var(--text-muted);">Tarjetas al 60% y Promerica</div>
+              </div>
+              <div style="background:rgba(0,0,0,0.3); border-radius:var(--radius-sm); padding:0.75rem; text-align:center;">
+                <div style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Cuota Unificada Préstamo</div>
+                <div style="font-size:1.2rem; font-weight:800; color:var(--accent-amber); margin-top:0.2rem;">${formatCurrency(10935.63, 'DOP')}</div>
+                <div style="font-size:0.68rem; color:var(--text-muted);">Fija mensual · 16.9%</div>
+              </div>
+              <div style="background:rgba(0,0,0,0.3); border-radius:var(--radius-sm); padding:0.75rem; text-align:center;">
+                <div style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Fondo Remanente Estimado</div>
+                <div style="font-size:1.2rem; font-weight:800; color:var(--accent-cyan); margin-top:0.2rem;">RD$ 270,347</div>
+                <div style="font-size:0.68rem; color:var(--text-muted);">Reserva / Fondo de emergencia</div>
+              </div>
+            </div>
+          </div>`;
+        }
+
         let remaining = 378000;
         let totalCCInterestSaved = 0;
-        const steps = consolidationTargets.map(t => {
+        const steps = activeTargets.map(t => {
           const debt = debts.find(d => d.id === t.id);
           if (!debt || debt.status === 'paid') return null;
           const balDOP = debt.currency === 'USD' ? debt.balance * rate : debt.balance;
@@ -1301,10 +1347,9 @@ function renderStrategyTab() {
           remaining -= paid;
           return { ...t, balDOP, paid, pct, annualInterestSaved, fullyPaid: paid >= balDOP };
         }).filter(Boolean);
-        const newLoanMonthlyInterest = (378000 * 0.169) / 12;
-        const savedVsLoan = totalCCInterestSaved - (378000 * 0.169);
+
         return `
-        <div style="background:linear-gradient(135deg,rgba(16,185,129,0.1) 0%,rgba(6,182,212,0.08) 100%); border:2px solid rgba(16,185,129,0.4); border-radius:var(--radius-md); padding:1.25rem; display:flex; flex-direction:column; gap:1rem; margin-bottom:0.5rem;">
+        <div style="background:linear-gradient(135deg,rgba(16,185,129,0.1) 0%,rgba(6,182,212,0.08) 100%); border:2px solid rgba(16,185,129,0.4); border-radius:var(--radius-md); padding:1.25rem; display:flex; flex-direction:column; gap:1rem; margin-bottom:1.25rem;">
           <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
             <div style="display:flex; align-items:center; gap:0.5rem;">
               <span style="background:var(--accent-emerald); color:#000; font-weight:800; font-size:0.75rem; padding:0.25rem 0.65rem; border-radius:6px; text-transform:uppercase;">
@@ -1312,7 +1357,7 @@ function renderStrategyTab() {
               </span>
             </div>
             <span style="font-size:0.78rem; color:var(--accent-emerald); font-weight:700;">
-              Ahorro anual estimado: <strong>${formatCurrency(Math.max(0, savedVsLoan), 'DOP')}</strong>
+              Interés anual ahorrado: <strong>${formatCurrency(totalCCInterestSaved, 'DOP')}</strong>
             </span>
           </div>
           <p style="font-size:0.8rem; color:var(--text-secondary); line-height:1.45; margin:0;">
