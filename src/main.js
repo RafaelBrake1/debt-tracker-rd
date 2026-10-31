@@ -1272,6 +1272,89 @@ function renderStrategyTab() {
         </div>
       </div>
 
+      <!-- PLAN DE CONSOLIDACIÓN RD$378k -->
+      ${(() => {
+        const loan378 = debts.find(d => d.id === 'prestamo-378k');
+        if (!loan378) return '';
+        const rate = settings.usdToDopRate || 60.50;
+        const consolidationTargets = [
+          { id: 'qik-dop', label: 'Qik Banco Digital', rate: 60 },
+          { id: 'vimenca-dop', label: 'Vimenca (RD$)', rate: 60 },
+          { id: 'lafise-dop', label: 'LAFISE Mastercard', rate: 60 },
+          { id: 'mastercard-gold-dop', label: 'Mastercard Gold (RD$)', rate: 60 },
+          { id: 'mastercard-gold-usd', label: 'Mastercard Gold (US$)', rate: 60 },
+          { id: 'vimenca-usd', label: 'Vimenca (US$)', rate: 60 },
+          { id: 'capital-one-platinum', label: 'Capital One Platinum', rate: 29.99 },
+          { id: 'capital-one-savor', label: 'Capital One Savor', rate: 29.99 },
+          { id: 'prestamo-poliza', label: 'Préstamo Promerica', rate: 24 },
+        ];
+        let remaining = 378000;
+        let totalCCInterestSaved = 0;
+        const steps = consolidationTargets.map(t => {
+          const debt = debts.find(d => d.id === t.id);
+          if (!debt || debt.status === 'paid') return null;
+          const balDOP = debt.currency === 'USD' ? debt.balance * rate : debt.balance;
+          const paid = Math.min(remaining, balDOP);
+          const pct = Math.round((paid / balDOP) * 100);
+          const annualInterestSaved = (paid * (t.rate / 100));
+          totalCCInterestSaved += annualInterestSaved;
+          remaining -= paid;
+          return { ...t, balDOP, paid, pct, annualInterestSaved, fullyPaid: paid >= balDOP };
+        }).filter(Boolean);
+        const newLoanMonthlyInterest = (378000 * 0.169) / 12;
+        const savedVsLoan = totalCCInterestSaved - (378000 * 0.169);
+        return `
+        <div style="background:linear-gradient(135deg,rgba(16,185,129,0.1) 0%,rgba(6,182,212,0.08) 100%); border:2px solid rgba(16,185,129,0.4); border-radius:var(--radius-md); padding:1.25rem; display:flex; flex-direction:column; gap:1rem; margin-bottom:0.5rem;">
+          <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
+            <div style="display:flex; align-items:center; gap:0.5rem;">
+              <span style="background:var(--accent-emerald); color:#000; font-weight:800; font-size:0.75rem; padding:0.25rem 0.65rem; border-radius:6px; text-transform:uppercase;">
+                <i class="fa-solid fa-arrows-rotate"></i> PLAN CONSOLIDACIÓN RD$ 378k
+              </span>
+            </div>
+            <span style="font-size:0.78rem; color:var(--accent-emerald); font-weight:700;">
+              Ahorro anual estimado: <strong>${formatCurrency(Math.max(0, savedVsLoan), 'DOP')}</strong>
+            </span>
+          </div>
+          <p style="font-size:0.8rem; color:var(--text-secondary); line-height:1.45; margin:0;">
+            Usa los RD$ 378,000 del préstamo (16.9% anual) para liquidar las tarjetas en este orden. Pagas mucho menos interés que el 60% de las tarjetas.
+          </p>
+          <div style="display:flex; flex-direction:column; gap:0.55rem;">
+            ${steps.map((s, i) => `
+              <div style="display:flex; align-items:center; gap:0.75rem; background:rgba(0,0,0,0.25); border-radius:var(--radius-sm); padding:0.6rem 0.85rem; border:1px solid ${s.fullyPaid ? 'rgba(16,185,129,0.35)' : 'rgba(251,191,36,0.3)'};">
+                <div style="min-width:22px; height:22px; border-radius:50%; background:${s.fullyPaid ? 'var(--accent-emerald)' : 'var(--accent-amber)'}; color:#000; font-size:0.72rem; font-weight:800; display:flex; align-items:center; justify-content:center;">${i+1}</div>
+                <div style="flex:1;">
+                  <div style="font-weight:700; font-size:0.85rem;">${s.label} <span style="font-size:0.68rem; color:var(--accent-rose); font-weight:600;">${s.rate}% anual</span></div>
+                  <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">Saldo: ${formatCurrency(s.balDOP, 'DOP')}</div>
+                </div>
+                <div style="text-align:right; min-width:110px;">
+                  <div style="font-weight:800; font-size:0.88rem; color:${s.fullyPaid ? 'var(--accent-emerald)' : 'var(--accent-amber)'};">
+                    ${s.fullyPaid ? '✓ Saldada' : `${s.pct}% cubierta`}
+                  </div>
+                  <div style="font-size:0.7rem; color:var(--text-muted);">−${formatCurrency(s.paid, 'DOP')}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.6rem; margin-top:0.25rem;">
+            <div style="background:rgba(0,0,0,0.3); border-radius:var(--radius-sm); padding:0.6rem; text-align:center;">
+              <div style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Restante del préstamo</div>
+              <div style="font-size:1rem; font-weight:800; color:var(--accent-cyan); margin-top:0.2rem;">${formatCurrency(Math.max(0, remaining), 'DOP')}</div>
+              <div style="font-size:0.68rem; color:var(--text-muted);">Fondo de emergencia</div>
+            </div>
+            <div style="background:rgba(0,0,0,0.3); border-radius:var(--radius-sm); padding:0.6rem; text-align:center;">
+              <div style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Cuota nueva</div>
+              <div style="font-size:1rem; font-weight:800; color:var(--accent-amber); margin-top:0.2rem;">${formatCurrency(10935.63, 'DOP')}</div>
+              <div style="font-size:0.68rem; color:var(--text-muted);">/mes · 48 meses</div>
+            </div>
+            <div style="background:rgba(0,0,0,0.3); border-radius:var(--radius-sm); padding:0.6rem; text-align:center;">
+              <div style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Flujo liberado</div>
+              <div style="font-size:1rem; font-weight:800; color:var(--accent-emerald); margin-top:0.2rem;">+${formatCurrency(Math.max(0, (steps.filter(s=>s.fullyPaid).reduce((a,s) => {const d=debts.find(dd=>dd.id===s.id); return a+(d ? (d.currency==='USD'?d.minPayment*rate:d.minPayment):0);},0)) - 10935.63), 'DOP')}</div>
+              <div style="font-size:0.68rem; color:var(--text-muted);">/mes de alivio neto</div>
+            </div>
+          </div>
+        </div>`;
+      })()}
+
       <!-- Priority Order Timeline -->
       <div>
         <div style="font-size:0.85rem; font-weight:700; color:var(--text-primary); margin-bottom:0.75rem;">

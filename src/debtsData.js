@@ -149,6 +149,21 @@ export const INITIAL_DEBTS = [
     interestRate: 16,
     notes: "Tasa baja (16%), cuota RD$ 5,110.68 fija mensual. Vence en 2030.",
     status: "active"
+  },
+  {
+    id: "prestamo-378k",
+    name: "Préstamo Consolidación RD$ 378k",
+    institution: "Banco Principal",
+    category: "loan",
+    currency: "DOP",
+    balance: 378000,
+    creditLimit: 378000,
+    minPayment: 10935.63,
+    dueDay: 30,
+    cutoffDay: 30,
+    interestRate: 16.9,
+    notes: "Préstamo para consolidación de deudas. Tasa 16.9% nominal anual, 48 meses. Cuota fija RD$ 10,935.63. Vence 30/10/2030. Revisión de tasa: 28/04/2027.",
+    status: "active"
   }
 ];
 
