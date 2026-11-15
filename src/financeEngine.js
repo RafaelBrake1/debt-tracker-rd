@@ -575,3 +575,43 @@ export function calculateSmartFloat(debts, settings, customDay = null) {
   };
 }
 
+
+export function calculateSavingsProjection(debts, settings, targetDateStr) {
+  const rate = settings.usdToDopRate || 60.5;
+  const income = settings.monthlyIncomeDOP || 72000;
+  const now = new Date();
+  const target = new Date(targetDateStr + 'T00:00:00');
+  const months = Math.max(0,
+    (target.getFullYear() - now.getFullYear()) * 12 +
+    (target.getMonth() - now.getMonth())
+  );
+
+  let activeDebts = debts
+    .filter(d => d.status !== 'paid' && d.balance > 0)
+    .map(d => ({ ...d, balance: d.currency === 'USD' ? d.balance * rate : d.balance }));
+
+  let cumulativeSavings = 0;
+  const monthByMonth = [];
+
+  for (let m = 1; m <= months; m++) {
+    const monthDate = new Date(now.getFullYear(), now.getMonth() + m, 1);
+    let totalPaymentsDOP = 0;
+    const paidThisMonth = [];
+
+    for (const debt of activeDebts) {
+      if (debt.balance <= 0) continue;
+      const minDOP = debt.currency === 'USD' ? debt.minPayment * rate : debt.minPayment;
+      const actualPayment = Math.min(debt.balance, minDOP);
+      totalPaymentsDOP += actualPayment;
+      debt.balance = Math.max(0, debt.balance - minDOP);
+      if (debt.balance <= 0) paidThisMonth.push(debt.name);
+    }
+    activeDebts = activeDebts.filter(d => d.balance > 0);
+
+    const saveable = Math.max(0, income - totalPaymentsDOP);
+    cumulativeSavings += saveable;
+    monthByMonth.push({ month: m, date: monthDate, totalPaymentsDOP, saveable, cumulativeSavings, paidThisMonth });
+  }
+
+  return { months, totalSavings: cumulativeSavings, monthByMonth };
+}

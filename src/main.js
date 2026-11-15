@@ -8,7 +8,8 @@ import {
   formatCurrency,
   calculateMilestones,
   calculateCreditUtilization,
-  calculateSmartFloat
+  calculateSmartFloat,
+  calculateSavingsProjection
 } from './financeEngine.js';
 import {
   supabase,
@@ -37,6 +38,7 @@ let currentFilter = 'all';
 let currentTab = 'debts-tab';
 let editingDebtId = null;
 let selectedFloatSimDay = null; // null defaults to current day of the month
+let savingsTargetDate = `${new Date().getFullYear() + 1}-05-01`;
 
 function loadPaidDueDates() {
   const saved = localStorage.getItem(STORAGE_PAID_DUE_KEY);
@@ -562,6 +564,7 @@ function renderApp() {
   renderDebtsCards();
   renderStrategyTab();
   renderCalendarTab();
+  renderSavingsProjection();
 }
 
 // Attach general listeners
@@ -930,6 +933,86 @@ function renderDebtsCards() {
 }
 
 // Render Strategy Tab
+function renderSavingsProjection() {
+  const mount = document.getElementById('savings-projection-mount');
+  if (!mount) return;
+  const proj = calculateSavingsProjection(debts, settings, savingsTargetDate);
+  const rate = settings.usdToDopRate || 60.5;
+  const income = settings.monthlyIncomeDOP || 72000;
+
+  const tableRows = proj.monthByMonth.map(row => {
+    const dateStr = row.date.toLocaleDateString('es-DO', { month: 'short', year: '2-digit' });
+    const paidBadge = row.paidThisMonth.length
+      ? `<span style="font-size:0.65rem;color:var(--accent-emerald);margin-left:4px;">✓ ${row.paidThisMonth.map(n => n.split(' ')[0]).join(', ')}</span>`
+      : '';
+    return `<tr>
+      <td style="color:var(--text-secondary);padding:4px 6px;">${dateStr}${paidBadge}</td>
+      <td style="color:var(--accent-amber);padding:4px 6px;text-align:right;">${formatCurrency(row.totalPaymentsDOP,'DOP')}</td>
+      <td style="color:var(--accent-cyan);padding:4px 6px;text-align:right;">${formatCurrency(row.saveable,'DOP')}</td>
+      <td style="color:var(--accent-emerald);padding:4px 6px;text-align:right;font-weight:700;">${formatCurrency(row.cumulativeSavings,'DOP')}</td>
+    </tr>`;
+  }).join('');
+
+  mount.innerHTML = `
+    <div style="background:var(--bg-card);border:1px solid rgba(255,255,255,0.08);border-radius:var(--radius-md);padding:1.25rem;margin-bottom:1rem;">
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem;">
+        <span style="font-size:1.2rem;">🏦</span>
+        <span style="font-size:0.95rem;font-weight:700;color:var(--text-primary);">Proyección de Ahorros</span>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;flex-wrap:wrap;">
+        <label style="font-size:0.8rem;color:var(--text-secondary);">Fecha objetivo:</label>
+        <input id="savings-date-picker" type="month"
+          value="${savingsTargetDate.slice(0,7)}"
+          min="${new Date().toISOString().slice(0,7)}"
+          style="background:var(--bg-secondary);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:var(--text-primary);padding:4px 10px;font-size:0.85rem;cursor:pointer;" />
+        <span style="font-size:0.8rem;color:var(--text-muted);">${proj.months} mes${proj.months !== 1 ? 'es' : ''}</span>
+      </div>
+
+      ${proj.months === 0 ? `<p style="color:var(--accent-amber);font-size:0.85rem;">⚠️ Selecciona una fecha futura.</p>` : `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.75rem;margin-bottom:1rem;">
+        <div style="background:var(--bg-secondary);border-radius:var(--radius-sm);padding:0.75rem;text-align:center;">
+          <div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Ahorro acumulado</div>
+          <div style="font-size:1.15rem;font-weight:800;color:var(--accent-emerald);margin-top:0.25rem;">${formatCurrency(proj.totalSavings,'DOP')}</div>
+        </div>
+        <div style="background:var(--bg-secondary);border-radius:var(--radius-sm);padding:0.75rem;text-align:center;">
+          <div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Promedio/mes</div>
+          <div style="font-size:1.15rem;font-weight:800;color:var(--accent-cyan);margin-top:0.25rem;">${formatCurrency(proj.months > 0 ? proj.totalSavings/proj.months : 0,'DOP')}</div>
+        </div>
+        <div style="background:var(--bg-secondary);border-radius:var(--radius-sm);padding:0.75rem;text-align:center;">
+          <div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Deudas saldadas</div>
+          <div style="font-size:1.15rem;font-weight:800;color:var(--accent-amber);margin-top:0.25rem;">${debts.filter(d=>d.status==='paid'||d.balance<=0).length} / ${debts.length}</div>
+        </div>
+      </div>
+
+      <details style="margin-top:0.5rem;">
+        <summary style="font-size:0.8rem;color:var(--text-secondary);cursor:pointer;margin-bottom:0.5rem;">Ver desglose mes a mes ▾</summary>
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:0.78rem;">
+            <thead>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.1);">
+                <th style="color:var(--text-muted);padding:4px 6px;text-align:left;">Mes</th>
+                <th style="color:var(--text-muted);padding:4px 6px;text-align:right;">Pagos</th>
+                <th style="color:var(--text-muted);padding:4px 6px;text-align:right;">Ahorro</th>
+                <th style="color:var(--text-muted);padding:4px 6px;text-align:right;">Acumulado</th>
+              </tr>
+            </thead>
+            <tbody>${tableRows}</tbody>
+          </table>
+        </div>
+      </details>
+      `}
+    </div>`;
+
+  const picker = document.getElementById('savings-date-picker');
+  if (picker) {
+    picker.addEventListener('change', e => {
+      savingsTargetDate = e.target.value + '-01';
+      renderSavingsProjection();
+    });
+  }
+}
+
 function renderStrategyTab() {
   const mount = document.getElementById('strategy-container-mount');
   if (!mount) return;
@@ -1399,6 +1482,9 @@ function renderStrategyTab() {
           </div>
         </div>`;
       })()}
+
+      <!-- Proyección de Ahorros -->
+      <div id="savings-projection-mount"></div>
 
       <!-- Priority Order Timeline -->
       <div>
