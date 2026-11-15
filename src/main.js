@@ -39,6 +39,7 @@ let currentTab = 'debts-tab';
 let editingDebtId = null;
 let selectedFloatSimDay = null; // null defaults to current day of the month
 let savingsTargetDate = `${new Date().getFullYear() + 1}-05-01`;
+let savingsPlanMode = 'smart_hybrid';
 
 function loadPaidDueDates() {
   const saved = localStorage.getItem(STORAGE_PAID_DUE_KEY);
@@ -936,65 +937,131 @@ function renderDebtsCards() {
 function renderSavingsProjection() {
   const mount = document.getElementById('savings-projection-mount');
   if (!mount) return;
-  const proj = calculateSavingsProjection(debts, settings, savingsTargetDate);
-  const rate = settings.usdToDopRate || 60.5;
+
+  const proj = calculateSavingsProjection(debts, settings, savingsTargetDate, savingsPlanMode);
+  const projHybrid = calculateSavingsProjection(debts, settings, savingsTargetDate, 'smart_hybrid');
+  const projDebt = calculateSavingsProjection(debts, settings, savingsTargetDate, 'all_to_debt');
+  const projMin = calculateSavingsProjection(debts, settings, savingsTargetDate, 'min_only_save');
+
   const income = settings.monthlyIncomeDOP || 72000;
+  const baseExtra = settings.extraMonthlyPaymentDOP || 30000;
 
   const tableRows = proj.monthByMonth.map(row => {
     const dateStr = row.date.toLocaleDateString('es-DO', { month: 'short', year: '2-digit' });
     const paidBadge = row.paidThisMonth.length
-      ? `<span style="font-size:0.65rem;color:var(--accent-emerald);margin-left:4px;">✓ ${row.paidThisMonth.map(n => n.split(' ')[0]).join(', ')}</span>`
+      ? `<div style="font-size:0.65rem;color:var(--accent-emerald);margin-top:2px;">✓ Saldada: ${row.paidThisMonth.join(', ')}</div>`
       : '';
-    return `<tr>
-      <td style="color:var(--text-secondary);padding:4px 6px;">${dateStr}${paidBadge}</td>
-      <td style="color:var(--accent-amber);padding:4px 6px;text-align:right;">${formatCurrency(row.totalPaymentsDOP,'DOP')}</td>
-      <td style="color:var(--accent-cyan);padding:4px 6px;text-align:right;">${formatCurrency(row.saveable,'DOP')}</td>
-      <td style="color:var(--accent-emerald);padding:4px 6px;text-align:right;font-weight:700;">${formatCurrency(row.cumulativeSavings,'DOP')}</td>
+    const bonusBadge = row.bonusDOP > 0
+      ? `<div style="font-size:0.65rem;color:var(--accent-purple);margin-top:2px;">🎁 ${row.bonusNames.join(' + ')}</div>`
+      : '';
+    return `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+      <td style="color:var(--text-primary);padding:6px;font-weight:600;">M${row.month} (${dateStr})${paidBadge}${bonusBadge}</td>
+      <td style="color:var(--accent-amber);padding:6px;text-align:right;">${formatCurrency(row.totalPaymentsDOP,'DOP')}</td>
+      <td style="color:var(--accent-purple);padding:6px;text-align:right;">${row.bonusDOP > 0 ? '+' + formatCurrency(row.bonusDOP,'DOP') : '—'}</td>
+      <td style="color:var(--accent-cyan);padding:6px;text-align:right;">+${formatCurrency(row.saveable,'DOP')}</td>
+      <td style="color:var(--accent-emerald);padding:6px;text-align:right;font-weight:800;">${formatCurrency(row.cumulativeSavings,'DOP')}</td>
     </tr>`;
   }).join('');
 
+  let modeAdviceHTML = '';
+  if (savingsPlanMode === 'smart_hybrid') {
+    modeAdviceHTML = `
+      <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.28);border-radius:var(--radius-sm);padding:0.85rem;margin-bottom:1rem;font-size:0.8rem;line-height:1.5;">
+        <div style="font-weight:800;color:var(--accent-emerald);margin-bottom:0.35rem;">💡 Cómo manejar tu dinero y tus bonos (Plan Recomendado):</div>
+        <ul style="margin:0;padding-left:1.1rem;color:var(--text-secondary);">
+          <li><strong>Distribución mensual (Ingreso ${formatCurrency(income,'DOP')}):</strong> Separa <strong>${formatCurrency(proj.livingExpensesDOP,'DOP')}</strong> para tus gastos fijos personales, paga las cuotas mínimas a tiempo y usa tu excedente de <strong>${formatCurrency(baseExtra,'DOP')}/mes</strong> así: <strong>20% (${formatCurrency(baseExtra*0.2,'DOP')})</strong> a tu fondo de emergencia y <strong>80% (${formatCurrency(baseExtra*0.8,'DOP')})</strong> a matar tarjetas caras (60% y 30%).</li>
+          <li><strong>Bono Mes 3 (RD$ 58,000):</strong> Úsalo para dar el golpe final a las 5 deudas caras (Vimenca, Lafise, las 2 Capital One y Promerica). ${proj.toxicClearedMonth ? `¡En el <strong>Mes ${proj.toxicClearedMonth}</strong> quedas con <strong>CERO tarjetas y CERO deudas caras</strong>!` : ''}</li>
+          <li><strong>Desde el Mes ${(proj.toxicClearedMonth || 3) + 1} + Bonos Mes 6 (RD$ 58,000 + RD$ 135,000 = RD$ 193,000):</strong> Ya solo pagas las 2 cuotas fijas bajas (16% y 16.9% = <strong>RD$ 16,046/mes</strong>). No metas los bonos del Mes 6 al préstamo del 16%: <strong>guarda el 100% de esos RD$ 193,000 + tu nuevo excedente mensual (${formatCurrency(proj.currentFreeCashflowEnd,'DOP')}/mes)</strong> en una cuenta de alto rendimiento / fondo líquido.</li>
+        </ul>
+      </div>`;
+  } else if (savingsPlanMode === 'all_to_debt') {
+    modeAdviceHTML = `
+      <div style="background:rgba(6,182,212,0.08);border:1px solid rgba(6,182,212,0.28);border-radius:var(--radius-sm);padding:0.85rem;margin-bottom:1rem;font-size:0.8rem;line-height:1.5;color:var(--text-secondary);">
+        <strong style="color:var(--accent-cyan);">⚡ Modo Avalancha Total:</strong> Destinas el 100% de tu excedente mensual y el 100% de tus bonos (${formatCurrency(proj.totalBonusesDOP,'DOP')}) a amortizar capital de todas las deudas (incluyendo los préstamos al 16%). Bajas tu deuda en <strong>${formatCurrency(proj.netPrincipalReducedDOP,'DOP')}</strong>, pero llegas a la fecha con menos efectivo líquido (<strong>${formatCurrency(proj.totalSavings,'DOP')}</strong> vs <strong>${formatCurrency(projHybrid.totalSavings,'DOP')}</strong> en el modo híbrido).
+      </div>`;
+  } else {
+    modeAdviceHTML = `
+      <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.28);border-radius:var(--radius-sm);padding:0.85rem;margin-bottom:1rem;font-size:0.8rem;line-height:1.5;color:var(--text-secondary);">
+        <strong style="color:var(--accent-amber);">⚠️ Modo Solo Mínimos:</strong> Guardas todo el efectivo y los bonos sin abonar extra a las tarjetas. Aunque acumulas <strong>${formatCurrency(proj.totalSavings,'DOP')}</strong>, sigues pagando intereses del 60% y 30% (pierdes <strong>${formatCurrency(proj.totalInterestDOP - projHybrid.totalInterestDOP,'DOP')}</strong> extra en intereses frente al modo híbrido).
+      </div>`;
+  }
+
   mount.innerHTML = `
-    <div style="background:var(--bg-card);border:1px solid rgba(255,255,255,0.08);border-radius:var(--radius-md);padding:1.25rem;margin-bottom:1rem;">
-      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem;">
-        <span style="font-size:1.2rem;">🏦</span>
-        <span style="font-size:0.95rem;font-weight:700;color:var(--text-primary);">Proyección de Ahorros</span>
+    <div style="background:var(--bg-card);border:1px solid rgba(16,185,129,0.25);border-radius:var(--radius-md);padding:1.25rem;margin-bottom:1.25rem;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;margin-bottom:1rem;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <span style="font-size:1.25rem;">🏦</span>
+          <div>
+            <div style="font-size:0.95rem;font-weight:800;color:var(--text-primary);">Proyección de Ahorros, Bonos y Manejo de Dinero</div>
+            <div style="font-size:0.72rem;color:var(--text-muted);">Calcula tu liquidez real combinando sueldo, liberación de cuotas y bonos programados</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <label style="font-size:0.78rem;color:var(--text-secondary);font-weight:600;">Meta:</label>
+          <input id="savings-date-picker" type="month"
+            value="${savingsTargetDate.slice(0,7)}"
+            min="${new Date().toISOString().slice(0,7)}"
+            style="background:var(--bg-secondary);border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:var(--text-primary);padding:5px 10px;font-size:0.82rem;font-weight:700;cursor:pointer;" />
+          <span style="font-size:0.75rem;color:var(--accent-cyan);font-weight:700;">(${proj.months} mes${proj.months !== 1 ? 'es' : ''})</span>
+        </div>
       </div>
 
-      <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;flex-wrap:wrap;">
-        <label style="font-size:0.8rem;color:var(--text-secondary);">Fecha objetivo:</label>
-        <input id="savings-date-picker" type="month"
-          value="${savingsTargetDate.slice(0,7)}"
-          min="${new Date().toISOString().slice(0,7)}"
-          style="background:var(--bg-secondary);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:var(--text-primary);padding:4px 10px;font-size:0.85rem;cursor:pointer;" />
-        <span style="font-size:0.8rem;color:var(--text-muted);">${proj.months} mes${proj.months !== 1 ? 'es' : ''}</span>
+      <!-- Selector de Modo de Manejo del Dinero -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:0.5rem;margin-bottom:1rem;">
+        <button type="button" class="savings-mode-btn" data-mode="smart_hybrid" style="text-align:left;padding:0.6rem 0.75rem;border-radius:8px;cursor:pointer;border:1px solid ${savingsPlanMode==='smart_hybrid'?'var(--accent-emerald)':'rgba(255,255,255,0.1)'};background:${savingsPlanMode==='smart_hybrid'?'rgba(16,185,129,0.15)':'var(--bg-secondary)'};color:var(--text-primary);">
+          <div style="font-size:0.72rem;font-weight:800;color:var(--accent-emerald);">★ Híbrido Inteligente (Rec.)</div>
+          <div style="font-size:0.68rem;color:var(--text-muted);margin-top:2px;">Mata tarjetas → Ahorra bonos</div>
+          <div style="font-size:0.82rem;font-weight:800;margin-top:4px;">${formatCurrency(projHybrid.totalSavings,'DOP')}</div>
+        </button>
+        <button type="button" class="savings-mode-btn" data-mode="all_to_debt" style="text-align:left;padding:0.6rem 0.75rem;border-radius:8px;cursor:pointer;border:1px solid ${savingsPlanMode==='all_to_debt'?'var(--accent-cyan)':'rgba(255,255,255,0.1)'};background:${savingsPlanMode==='all_to_debt'?'rgba(6,182,212,0.15)':'var(--bg-secondary)'};color:var(--text-primary);">
+          <div style="font-size:0.72rem;font-weight:800;color:var(--accent-cyan);">⚡ 100% Ataque a Deudas</div>
+          <div style="font-size:0.68rem;color:var(--text-muted);margin-top:2px;">Todo a capital (incl. 16%)</div>
+          <div style="font-size:0.82rem;font-weight:800;margin-top:4px;">${formatCurrency(projDebt.totalSavings,'DOP')}</div>
+        </button>
+        <button type="button" class="savings-mode-btn" data-mode="min_only_save" style="text-align:left;padding:0.6rem 0.75rem;border-radius:8px;cursor:pointer;border:1px solid ${savingsPlanMode==='min_only_save'?'var(--accent-amber)':'rgba(255,255,255,0.1)'};background:${savingsPlanMode==='min_only_save'?'rgba(245,158,11,0.15)':'var(--bg-secondary)'};color:var(--text-primary);">
+          <div style="font-size:0.72rem;font-weight:800;color:var(--accent-amber);">🏦 Solo Cuotas Mínimas</div>
+          <div style="font-size:0.68rem;color:var(--text-muted);margin-top:2px;">Guardar todo sin abonar</div>
+          <div style="font-size:0.82rem;font-weight:800;margin-top:4px;">${formatCurrency(projMin.totalSavings,'DOP')}</div>
+        </button>
       </div>
 
       ${proj.months === 0 ? `<p style="color:var(--accent-amber);font-size:0.85rem;">⚠️ Selecciona una fecha futura.</p>` : `
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.75rem;margin-bottom:1rem;">
-        <div style="background:var(--bg-secondary);border-radius:var(--radius-sm);padding:0.75rem;text-align:center;">
-          <div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Ahorro acumulado</div>
-          <div style="font-size:1.15rem;font-weight:800;color:var(--accent-emerald);margin-top:0.25rem;">${formatCurrency(proj.totalSavings,'DOP')}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:0.65rem;margin-bottom:1rem;">
+        <div style="background:var(--bg-secondary);border-radius:var(--radius-sm);padding:0.7rem;text-align:center;border:1px solid rgba(16,185,129,0.2);">
+          <div style="font-size:0.63rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Efectivo Ahorrado</div>
+          <div style="font-size:1.05rem;font-weight:800;color:var(--accent-emerald);margin-top:0.2rem;">${formatCurrency(proj.totalSavings,'DOP')}</div>
+          <div style="font-size:0.63rem;color:var(--text-muted);">líquido en banco</div>
         </div>
-        <div style="background:var(--bg-secondary);border-radius:var(--radius-sm);padding:0.75rem;text-align:center;">
-          <div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Promedio/mes</div>
-          <div style="font-size:1.15rem;font-weight:800;color:var(--accent-cyan);margin-top:0.25rem;">${formatCurrency(proj.months > 0 ? proj.totalSavings/proj.months : 0,'DOP')}</div>
+        <div style="background:var(--bg-secondary);border-radius:var(--radius-sm);padding:0.7rem;text-align:center;">
+          <div style="font-size:0.63rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Bonos Incluídos</div>
+          <div style="font-size:1.05rem;font-weight:800;color:var(--accent-purple);margin-top:0.2rem;">${formatCurrency(proj.totalBonusesDOP,'DOP')}</div>
+          <div style="font-size:0.63rem;color:var(--text-muted);">en el período</div>
         </div>
-        <div style="background:var(--bg-secondary);border-radius:var(--radius-sm);padding:0.75rem;text-align:center;">
-          <div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Deudas saldadas</div>
-          <div style="font-size:1.15rem;font-weight:800;color:var(--accent-amber);margin-top:0.25rem;">${debts.filter(d=>d.status==='paid'||d.balance<=0).length} / ${debts.length}</div>
+        <div style="background:var(--bg-secondary);border-radius:var(--radius-sm);padding:0.7rem;text-align:center;">
+          <div style="font-size:0.63rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Deuda Eliminada</div>
+          <div style="font-size:1.05rem;font-weight:800;color:var(--accent-cyan);margin-top:0.2rem;">-${formatCurrency(proj.netPrincipalReducedDOP,'DOP')}</div>
+          <div style="font-size:0.63rem;color:var(--text-muted);">capital reducido</div>
+        </div>
+        <div style="background:var(--bg-secondary);border-radius:var(--radius-sm);padding:0.7rem;text-align:center;">
+          <div style="font-size:0.63rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Flujo Libre Final</div>
+          <div style="font-size:1.05rem;font-weight:800;color:var(--accent-amber);margin-top:0.2rem;">${formatCurrency(proj.currentFreeCashflowEnd,'DOP')}</div>
+          <div style="font-size:0.63rem;color:var(--text-muted);">/mes disponible</div>
         </div>
       </div>
 
-      <details style="margin-top:0.5rem;">
-        <summary style="font-size:0.8rem;color:var(--text-secondary);cursor:pointer;margin-bottom:0.5rem;">Ver desglose mes a mes ▾</summary>
+      ${modeAdviceHTML}
+
+      <details open style="margin-top:0.5rem;">
+        <summary style="font-size:0.8rem;color:var(--text-secondary);cursor:pointer;margin-bottom:0.5rem;font-weight:700;">Ver ruta mes a mes (Sueldo + Bonos + Deudas Saldadas) ▾</summary>
         <div style="overflow-x:auto;">
-          <table style="width:100%;border-collapse:collapse;font-size:0.78rem;">
+          <table style="width:100%;border-collapse:collapse;font-size:0.76rem;">
             <thead>
-              <tr style="border-bottom:1px solid rgba(255,255,255,0.1);">
-                <th style="color:var(--text-muted);padding:4px 6px;text-align:left;">Mes</th>
-                <th style="color:var(--text-muted);padding:4px 6px;text-align:right;">Pagos</th>
-                <th style="color:var(--text-muted);padding:4px 6px;text-align:right;">Ahorro</th>
-                <th style="color:var(--text-muted);padding:4px 6px;text-align:right;">Acumulado</th>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.12);">
+                <th style="color:var(--text-muted);padding:5px 6px;text-align:left;">Mes / Hitos</th>
+                <th style="color:var(--text-muted);padding:5px 6px;text-align:right;">Pago Deudas</th>
+                <th style="color:var(--text-muted);padding:5px 6px;text-align:right;">Bonos</th>
+                <th style="color:var(--text-muted);padding:5px 6px;text-align:right;">Ahorro Mes</th>
+                <th style="color:var(--text-muted);padding:5px 6px;text-align:right;">En Banco</th>
               </tr>
             </thead>
             <tbody>${tableRows}</tbody>
@@ -1011,6 +1078,13 @@ function renderSavingsProjection() {
       renderSavingsProjection();
     });
   }
+
+  mount.querySelectorAll('.savings-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      savingsPlanMode = btn.dataset.mode;
+      renderSavingsProjection();
+    });
+  });
 }
 
 function renderStrategyTab() {
@@ -1572,6 +1646,8 @@ function renderStrategyTab() {
       openPayModal(id, suggestedAmount);
     });
   });
+
+  renderSavingsProjection();
 }
 
 // Render Calendar & Cashflow Tab

@@ -576,9 +576,11 @@ export function calculateSmartFloat(debts, settings, customDay = null) {
 }
 
 
-export function calculateSavingsProjection(debts, settings, targetDateStr) {
+export function calculateSavingsProjection(debts, settings, targetDateStr, mode = 'smart_hybrid') {
   const rate = settings.usdToDopRate || 60.5;
   const income = settings.monthlyIncomeDOP || 72000;
+  const baseExtra = settings.extraMonthlyPaymentDOP || 0;
+  const strategy = settings.strategy || 'avalanche';
   const now = new Date();
   const target = new Date(targetDateStr + 'T00:00:00');
   const months = Math.max(0,
@@ -586,32 +588,172 @@ export function calculateSavingsProjection(debts, settings, targetDateStr) {
     (target.getMonth() - now.getMonth())
   );
 
+  // Clone active debts in DOP with interest rate
   let activeDebts = debts
     .filter(d => d.status !== 'paid' && d.balance > 0)
-    .map(d => ({ ...d, balance: d.currency === 'USD' ? d.balance * rate : d.balance }));
+    .map(d => ({
+      ...d,
+      balanceDOP: d.currency === 'USD' ? d.balance * rate : d.balance,
+      minDOP: d.currency === 'USD' ? d.minPayment * rate : d.minPayment,
+      monthlyRate: ((d.interestRate || 0) / 100) / 12,
+      isToxic: (d.interestRate || 0) >= 20 || d.category === 'credit_card'
+    }));
+
+  if (strategy === 'avalanche') {
+    activeDebts.sort((a, b) => b.interestRate - a.interestRate || a.balanceDOP - b.balanceDOP);
+  } else {
+    activeDebts.sort((a, b) => a.balanceDOP - b.balanceDOP);
+  }
+
+  const initialMinTotalDOP = activeDebts.reduce((s, d) => s + d.minDOP, 0);
+  const initialDebtTotalDOP = activeDebts.reduce((s, d) => s + d.balanceDOP, 0);
+  // Implicit personal living expenses based on user's configured income, minimums, and extra budget
+  const livingExpensesDOP = Math.max(0, income - initialMinTotalDOP - baseExtra);
 
   let cumulativeSavings = 0;
+  let totalBonusesDOP = 0;
+  let totalDebtPaidDOP = 0;
+  let totalInterestDOP = 0;
+  let toxicClearedMonth = activeDebts.some(d => d.isToxic) ? null : 0;
   const monthByMonth = [];
 
   for (let m = 1; m <= months; m++) {
     const monthDate = new Date(now.getFullYear(), now.getMonth() + m, 1);
-    let totalPaymentsDOP = 0;
     const paidThisMonth = [];
 
-    for (const debt of activeDebts) {
-      if (debt.balance <= 0) continue;
-      const minDOP = debt.currency === 'USD' ? debt.minPayment * rate : debt.minPayment;
-      const actualPayment = Math.min(debt.balance, minDOP);
-      totalPaymentsDOP += actualPayment;
-      debt.balance = Math.max(0, debt.balance - minDOP);
-      if (debt.balance <= 0) paidThisMonth.push(debt.name);
-    }
-    activeDebts = activeDebts.filter(d => d.balance > 0);
+    // 1. Scheduled bonuses for month m
+    const bonusesThisMonthList = (settings.monthlyExtras || []).filter(
+      item => item.isRecurring || Number(item.monthOffset) === m
+    );
+    const bonusDOP = bonusesThisMonthList.reduce((s, item) => s + Number(item.amountDOP || 0), 0);
+    const bonusNames = bonusesThisMonthList.map(item => item.name);
+    totalBonusesDOP += bonusDOP;
 
-    const saveable = Math.max(0, income - totalPaymentsDOP);
-    cumulativeSavings += saveable;
-    monthByMonth.push({ month: m, date: monthDate, totalPaymentsDOP, saveable, cumulativeSavings, paidThisMonth });
+    // 2. Accrue monthly interest
+    let interestMonth = 0;
+    for (const d of activeDebts) {
+      if (d.balanceDOP > 1) {
+        const intr = d.balanceDOP * d.monthlyRate;
+        d.balanceDOP += intr;
+        interestMonth += intr;
+        totalInterestDOP += intr;
+      }
+    }
+
+    // 3. Pay minimum installments first
+    let minPaymentsDOP = 0;
+    for (const d of activeDebts) {
+      if (d.balanceDOP > 1) {
+        const pay = Math.min(d.balanceDOP, d.minDOP);
+        d.balanceDOP -= pay;
+        minPaymentsDOP += pay;
+        if (d.balanceDOP <= 1) {
+          d.balanceDOP = 0;
+          paidThisMonth.push(d.name);
+        }
+      }
+    }
+
+    // 4. Available surplus after living expenses and current month's minimum payments
+    // Freed-up minimums automatically grow this surplus
+    const monthlySurplusDOP = Math.max(0, (income - livingExpensesDOP) - minPaymentsDOP);
+    let extraToDebtDOP = 0;
+    let savedThisMonthDOP = 0;
+
+    if (mode === 'min_only_save') {
+      // Pay only minimums; save 100% of monthly surplus + bonuses
+      savedThisMonthDOP = monthlySurplusDOP + bonusDOP;
+    } else if (mode === 'all_to_debt') {
+      // Attack ALL debts (even 16% loans) with 100% of surplus + bonuses until $0 debt
+      let pool = monthlySurplusDOP + bonusDOP;
+      for (const d of activeDebts) {
+        if (pool <= 0) break;
+        if (d.balanceDOP > 1) {
+          const pay = Math.min(d.balanceDOP, pool);
+          d.balanceDOP -= pay;
+          pool -= pay;
+          extraToDebtDOP += pay;
+          if (d.balanceDOP <= 1) {
+            d.balanceDOP = 0;
+            if (!paidThisMonth.includes(d.name)) paidThisMonth.push(d.name);
+          }
+        }
+      }
+      savedThisMonthDOP = pool; // Leftover once all debts are 0
+    } else {
+      // 'smart_hybrid' (Recommended):
+      // - Keep 20% of monthly surplus as emergency liquidity while toxic debts (>20% / cards) exist
+      // - Use 80% of monthly surplus + 100% of early bonuses to wipe out toxic debts (60%, 30%, 24%)
+      // - Once toxic debts are 0, only pay fixed installments on low-rate loans (16%-16.9%) and save 100% of surplus + bonuses!
+      const hasToxic = activeDebts.some(d => d.isToxic && d.balanceDOP > 1);
+      if (hasToxic) {
+        const emergencyReserve = monthlySurplusDOP * 0.20;
+        let debtAttackPool = (monthlySurplusDOP * 0.80) + bonusDOP;
+        for (const d of activeDebts) {
+          if (debtAttackPool <= 0) break;
+          if (d.isToxic && d.balanceDOP > 1) {
+            const pay = Math.min(d.balanceDOP, debtAttackPool);
+            d.balanceDOP -= pay;
+            debtAttackPool -= pay;
+            extraToDebtDOP += pay;
+            if (d.balanceDOP <= 1) {
+              d.balanceDOP = 0;
+              if (!paidThisMonth.includes(d.name)) paidThisMonth.push(d.name);
+            }
+          }
+        }
+        // Any leftover after wiping out the last toxic debt goes straight to savings!
+        savedThisMonthDOP = emergencyReserve + debtAttackPool;
+      } else {
+        // Toxic debts already wiped out: 100% of surplus + bonuses goes to liquid savings
+        savedThisMonthDOP = monthlySurplusDOP + bonusDOP;
+      }
+    }
+
+    if (toxicClearedMonth === null && !activeDebts.some(d => d.isToxic && d.balanceDOP > 1)) {
+      toxicClearedMonth = m;
+    }
+
+    const totalPaymentsDOP = minPaymentsDOP + extraToDebtDOP;
+    totalDebtPaidDOP += totalPaymentsDOP;
+    cumulativeSavings += savedThisMonthDOP;
+    const remainingDebtDOP = activeDebts.reduce((s, d) => s + d.balanceDOP, 0);
+    const activeDebtsLeft = activeDebts.filter(d => d.balanceDOP > 1).length;
+
+    monthByMonth.push({
+      month: m,
+      date: monthDate,
+      minPaymentsDOP,
+      extraToDebtDOP,
+      totalPaymentsDOP,
+      bonusDOP,
+      bonusNames,
+      saveable: savedThisMonthDOP,
+      cumulativeSavings,
+      remainingDebtDOP,
+      activeDebtsLeft,
+      paidThisMonth
+    });
   }
 
-  return { months, totalSavings: cumulativeSavings, monthByMonth };
+  const endRemainingDebtDOP = activeDebts.reduce((s, d) => s + d.balanceDOP, 0);
+  const netPrincipalReducedDOP = Math.max(0, initialDebtTotalDOP - endRemainingDebtDOP);
+  const currentFreeCashflowEnd = monthByMonth.length > 0
+    ? Math.max(0, (income - livingExpensesDOP) - activeDebts.filter(d => d.balanceDOP > 1).reduce((s, d) => s + d.minDOP, 0))
+    : baseExtra;
+
+  return {
+    months,
+    mode,
+    totalSavings: cumulativeSavings,
+    totalBonusesDOP,
+    netPrincipalReducedDOP,
+    endRemainingDebtDOP,
+    totalInterestDOP,
+    livingExpensesDOP,
+    initialMinTotalDOP,
+    currentFreeCashflowEnd,
+    toxicClearedMonth,
+    monthByMonth
+  };
 }
