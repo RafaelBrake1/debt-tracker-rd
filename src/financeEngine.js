@@ -576,11 +576,12 @@ export function calculateSmartFloat(debts, settings, customDay = null) {
 }
 
 
-export function calculateSavingsProjection(debts, settings, targetDateStr, mode = 'smart_hybrid') {
+export function calculateSavingsProjection(debts, settings, targetDateStr, mode = 'smart_hybrid', useLoanRemainder = true) {
   const rate = settings.usdToDopRate || 60.5;
   const income = settings.monthlyIncomeDOP || 72000;
   const baseExtra = settings.extraMonthlyPaymentDOP || 0;
   const strategy = settings.strategy || 'avalanche';
+  const loanCashLeftDOP = settings.loanRemainingCashDOP ?? 130000;
   const now = new Date();
   const target = new Date(targetDateStr + 'T00:00:00');
   const months = Math.max(0,
@@ -610,11 +611,33 @@ export function calculateSavingsProjection(debts, settings, targetDateStr, mode 
   // Implicit personal living expenses based on user's configured income, minimums, and extra budget
   const livingExpensesDOP = Math.max(0, income - initialMinTotalDOP - baseExtra);
 
-  let cumulativeSavings = 0;
+  // Apply remaining consolidation loan cash (RD$ 130,000) at Month 0 if enabled
+  let loanUsedForDebtsDOP = 0;
+  let loanLeftoverToSavingsDOP = 0;
+  const paidWithLoanNames = [];
+  if (useLoanRemainder && loanCashLeftDOP > 0) {
+    let pool = loanCashLeftDOP;
+    for (const d of activeDebts) {
+      if (pool <= 0) break;
+      if (d.isToxic && d.balanceDOP > 1) {
+        const pay = Math.min(d.balanceDOP, pool);
+        d.balanceDOP -= pay;
+        pool -= pay;
+        loanUsedForDebtsDOP += pay;
+        if (d.balanceDOP <= 1) {
+          d.balanceDOP = 0;
+          paidWithLoanNames.push(d.name);
+        }
+      }
+    }
+    loanLeftoverToSavingsDOP = pool;
+  }
+
+  let cumulativeSavings = loanLeftoverToSavingsDOP;
   let totalBonusesDOP = 0;
-  let totalDebtPaidDOP = 0;
+  let totalDebtPaidDOP = loanUsedForDebtsDOP;
   let totalInterestDOP = 0;
-  let toxicClearedMonth = activeDebts.some(d => d.isToxic) ? null : 0;
+  let toxicClearedMonth = activeDebts.some(d => d.isToxic && d.balanceDOP > 1) ? null : 0;
   const monthByMonth = [];
 
   for (let m = 1; m <= months; m++) {
@@ -745,6 +768,11 @@ export function calculateSavingsProjection(debts, settings, targetDateStr, mode 
   return {
     months,
     mode,
+    useLoanRemainder,
+    loanCashLeftDOP,
+    loanUsedForDebtsDOP,
+    loanLeftoverToSavingsDOP,
+    paidWithLoanNames,
     totalSavings: cumulativeSavings,
     totalBonusesDOP,
     netPrincipalReducedDOP,

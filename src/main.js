@@ -40,6 +40,7 @@ let editingDebtId = null;
 let selectedFloatSimDay = null; // null defaults to current day of the month
 let savingsTargetDate = `${new Date().getFullYear() + 1}-05-01`;
 let savingsPlanMode = 'smart_hybrid';
+let useLoanRemainderInSim = true;
 
 function loadPaidDueDates() {
   const saved = localStorage.getItem(STORAGE_PAID_DUE_KEY);
@@ -938,15 +939,24 @@ function renderSavingsProjection() {
   const mount = document.getElementById('savings-projection-mount');
   if (!mount) return;
 
-  const proj = calculateSavingsProjection(debts, settings, savingsTargetDate, savingsPlanMode);
-  const projHybrid = calculateSavingsProjection(debts, settings, savingsTargetDate, 'smart_hybrid');
-  const projDebt = calculateSavingsProjection(debts, settings, savingsTargetDate, 'all_to_debt');
-  const projMin = calculateSavingsProjection(debts, settings, savingsTargetDate, 'min_only_save');
+  const proj = calculateSavingsProjection(debts, settings, savingsTargetDate, savingsPlanMode, useLoanRemainderInSim);
+  const projHybrid = calculateSavingsProjection(debts, settings, savingsTargetDate, 'smart_hybrid', useLoanRemainderInSim);
+  const projDebt = calculateSavingsProjection(debts, settings, savingsTargetDate, 'all_to_debt', useLoanRemainderInSim);
+  const projMin = calculateSavingsProjection(debts, settings, savingsTargetDate, 'min_only_save', useLoanRemainderInSim);
 
   const income = settings.monthlyIncomeDOP || 72000;
   const baseExtra = settings.extraMonthlyPaymentDOP || 30000;
 
-  const tableRows = proj.monthByMonth.map(row => {
+  const loanRowHTML = (useLoanRemainderInSim && proj.loanCashLeftDOP > 0) ? `
+    <tr style="border-bottom:1px solid rgba(16,185,129,0.2);background:rgba(16,185,129,0.06);">
+      <td style="color:var(--accent-emerald);padding:6px;font-weight:700;">Hoy (Restante Préstamo RD$ 130k)<div style="font-size:0.65rem;color:var(--text-secondary);">✓ Liquida: ${proj.paidWithLoanNames.join(', ')}</div></td>
+      <td style="color:var(--accent-amber);padding:6px;text-align:right;">${formatCurrency(proj.loanUsedForDebtsDOP,'DOP')}</td>
+      <td style="color:var(--text-muted);padding:6px;text-align:right;">—</td>
+      <td style="color:var(--accent-cyan);padding:6px;text-align:right;">+${formatCurrency(proj.loanLeftoverToSavingsDOP,'DOP')}</td>
+      <td style="color:var(--accent-emerald);padding:6px;text-align:right;font-weight:800;">${formatCurrency(proj.loanLeftoverToSavingsDOP,'DOP')}</td>
+    </tr>` : '';
+
+  const tableRows = loanRowHTML + proj.monthByMonth.map(row => {
     const dateStr = row.date.toLocaleDateString('es-DO', { month: 'short', year: '2-digit' });
     const paidBadge = row.paidThisMonth.length
       ? `<div style="font-size:0.65rem;color:var(--accent-emerald);margin-top:2px;">✓ Saldada: ${row.paidThisMonth.join(', ')}</div>`
@@ -967,33 +977,33 @@ function renderSavingsProjection() {
   if (savingsPlanMode === 'smart_hybrid') {
     modeAdviceHTML = `
       <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.28);border-radius:var(--radius-sm);padding:0.85rem;margin-bottom:1rem;font-size:0.8rem;line-height:1.5;">
-        <div style="font-weight:800;color:var(--accent-emerald);margin-bottom:0.35rem;">💡 Cómo manejar tu dinero y tus bonos (Plan Recomendado):</div>
+        <div style="font-weight:800;color:var(--accent-emerald);margin-bottom:0.35rem;">💡 Cómo manejar tus RD$ 130,000 restantes, tu sueldo y tus bonos:</div>
         <ul style="margin:0;padding-left:1.1rem;color:var(--text-secondary);">
-          <li><strong>Distribución mensual (Ingreso ${formatCurrency(income,'DOP')}):</strong> Separa <strong>${formatCurrency(proj.livingExpensesDOP,'DOP')}</strong> para tus gastos fijos personales, paga las cuotas mínimas a tiempo y usa tu excedente de <strong>${formatCurrency(baseExtra,'DOP')}/mes</strong> así: <strong>20% (${formatCurrency(baseExtra*0.2,'DOP')})</strong> a tu fondo de emergencia y <strong>80% (${formatCurrency(baseExtra*0.8,'DOP')})</strong> a matar tarjetas caras (60% y 30%).</li>
-          <li><strong>Bono Mes 3 (RD$ 58,000):</strong> Úsalo para dar el golpe final a las 5 deudas caras (Vimenca, Lafise, las 2 Capital One y Promerica). ${proj.toxicClearedMonth ? `¡En el <strong>Mes ${proj.toxicClearedMonth}</strong> quedas con <strong>CERO tarjetas y CERO deudas caras</strong>!` : ''}</li>
-          <li><strong>Desde el Mes ${(proj.toxicClearedMonth || 3) + 1} + Bonos Mes 6 (RD$ 58,000 + RD$ 135,000 = RD$ 193,000):</strong> Ya solo pagas las 2 cuotas fijas bajas (16% y 16.9% = <strong>RD$ 16,046/mes</strong>). No metas los bonos del Mes 6 al préstamo del 16%: <strong>guarda el 100% de esos RD$ 193,000 + tu nuevo excedente mensual (${formatCurrency(proj.currentFreeCashflowEnd,'DOP')}/mes)</strong> en una cuenta de alto rendimiento / fondo líquido.</li>
+          ${useLoanRemainderInSim ? `<li><strong>1. Usa hoy los RD$ 130,000 que te quedan del préstamo:</strong> Paga de golpe las 5 deudas caras pendientes (<strong>${formatCurrency(proj.loanUsedForDebtsDOP,'DOP')}</strong> en total: Vimenca, las 2 Capital One, Promerica y Lafise). Te sobran <strong>${formatCurrency(proj.loanLeftoverToSavingsDOP,'DOP')}</strong> limpios que entran directo como tu primer ahorro en banco.</li>` : ''}
+          <li><strong>2. Tu sueldo desde el Mes 1 (${formatCurrency(income,'DOP')}):</strong> Como ya mataste todas las tarjetas con los RD$ 130,000 del préstamo, solo pagas las 2 cuotas fijas bajas (16% y 16.9% = <strong>RD$ 16,046/mes</strong>) + tus gastos personales (<strong>${formatCurrency(proj.livingExpensesDOP,'DOP')}</strong>). Eso te libera <strong>${formatCurrency(proj.currentFreeCashflowEnd,'DOP')}/mes</strong> limpios para ahorrar cada mes desde el Mes 1.</li>
+          <li><strong>3. Tus 3 Bonos (${formatCurrency(proj.totalBonusesDOP,'DOP')} en Meses 3 y 6):</strong> Como ya no debes tarjetas caras, el <strong>100% del Bono del Mes 3 (RD$ 58,000)</strong> y de los <strong>2 Bonos del Mes 6 (RD$ 193,000)</strong> van íntegros a tu cuenta de ahorro.</li>
         </ul>
       </div>`;
   } else if (savingsPlanMode === 'all_to_debt') {
     modeAdviceHTML = `
       <div style="background:rgba(6,182,212,0.08);border:1px solid rgba(6,182,212,0.28);border-radius:var(--radius-sm);padding:0.85rem;margin-bottom:1rem;font-size:0.8rem;line-height:1.5;color:var(--text-secondary);">
-        <strong style="color:var(--accent-cyan);">⚡ Modo Avalancha Total:</strong> Destinas el 100% de tu excedente mensual y el 100% de tus bonos (${formatCurrency(proj.totalBonusesDOP,'DOP')}) a amortizar capital de todas las deudas (incluyendo los préstamos al 16%). Bajas tu deuda en <strong>${formatCurrency(proj.netPrincipalReducedDOP,'DOP')}</strong>, pero llegas a la fecha con menos efectivo líquido (<strong>${formatCurrency(proj.totalSavings,'DOP')}</strong> vs <strong>${formatCurrency(projHybrid.totalSavings,'DOP')}</strong> en el modo híbrido).
+        <strong style="color:var(--accent-cyan);">⚡ Modo Avalancha Total:</strong> Destinas todo tu excedente mensual y bonos (${formatCurrency(proj.totalBonusesDOP,'DOP')}) a amortizar capital de los préstamos del 16%. Reduces tu deuda en <strong>${formatCurrency(proj.netPrincipalReducedDOP,'DOP')}</strong>, pero dejas solo <strong>${formatCurrency(proj.totalSavings,'DOP')}</strong> en efectivo líquido.
       </div>`;
   } else {
     modeAdviceHTML = `
       <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.28);border-radius:var(--radius-sm);padding:0.85rem;margin-bottom:1rem;font-size:0.8rem;line-height:1.5;color:var(--text-secondary);">
-        <strong style="color:var(--accent-amber);">⚠️ Modo Solo Mínimos:</strong> Guardas todo el efectivo y los bonos sin abonar extra a las tarjetas. Aunque acumulas <strong>${formatCurrency(proj.totalSavings,'DOP')}</strong>, sigues pagando intereses del 60% y 30% (pierdes <strong>${formatCurrency(proj.totalInterestDOP - projHybrid.totalInterestDOP,'DOP')}</strong> extra en intereses frente al modo híbrido).
+        <strong style="color:var(--accent-amber);">⚠️ Modo Solo Mínimos:</strong> Guardas todo sin abonar extra. Si ya saldaste las tarjetas con los RD$ 130,000 del préstamo, coincide con el Modo Híbrido (<strong>${formatCurrency(proj.totalSavings,'DOP')}</strong>).
       </div>`;
   }
 
   mount.innerHTML = `
     <div style="background:var(--bg-card);border:1px solid rgba(16,185,129,0.25);border-radius:var(--radius-md);padding:1.25rem;margin-bottom:1.25rem;">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;margin-bottom:1rem;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;margin-bottom:0.85rem;flex-wrap:wrap;">
         <div style="display:flex;align-items:center;gap:0.5rem;">
           <span style="font-size:1.25rem;">🏦</span>
           <div>
             <div style="font-size:0.95rem;font-weight:800;color:var(--text-primary);">Proyección de Ahorros, Bonos y Manejo de Dinero</div>
-            <div style="font-size:0.72rem;color:var(--text-muted);">Calcula tu liquidez real combinando sueldo, liberación de cuotas y bonos programados</div>
+            <div style="font-size:0.72rem;color:var(--text-muted);">Incluye los RD$ 130,000 restantes del préstamo + sueldo + bonos</div>
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -1006,11 +1016,16 @@ function renderSavingsProjection() {
         </div>
       </div>
 
+      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.78rem;color:var(--accent-emerald);font-weight:600;margin-bottom:0.85rem;cursor:pointer;">
+        <input type="checkbox" id="chk-use-loan-remainder" ${useLoanRemainderInSim ? 'checked' : ''} style="accent-color:var(--accent-emerald);cursor:pointer;" />
+        Usar los RD$ 130,000 restantes del préstamo para liquidar hoy las 5 deudas caras (RD$ 107,653) y sumar el sobrante (+RD$ 22,347) al ahorro
+      </label>
+
       <!-- Selector de Modo de Manejo del Dinero -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:0.5rem;margin-bottom:1rem;">
         <button type="button" class="savings-mode-btn" data-mode="smart_hybrid" style="text-align:left;padding:0.6rem 0.75rem;border-radius:8px;cursor:pointer;border:1px solid ${savingsPlanMode==='smart_hybrid'?'var(--accent-emerald)':'rgba(255,255,255,0.1)'};background:${savingsPlanMode==='smart_hybrid'?'rgba(16,185,129,0.15)':'var(--bg-secondary)'};color:var(--text-primary);">
           <div style="font-size:0.72rem;font-weight:800;color:var(--accent-emerald);">★ Híbrido Inteligente (Rec.)</div>
-          <div style="font-size:0.68rem;color:var(--text-muted);margin-top:2px;">Mata tarjetas → Ahorra bonos</div>
+          <div style="font-size:0.68rem;color:var(--text-muted);margin-top:2px;">Saldar tarjetas → Ahorrar todo</div>
           <div style="font-size:0.82rem;font-weight:800;margin-top:4px;">${formatCurrency(projHybrid.totalSavings,'DOP')}</div>
         </button>
         <button type="button" class="savings-mode-btn" data-mode="all_to_debt" style="text-align:left;padding:0.6rem 0.75rem;border-radius:8px;cursor:pointer;border:1px solid ${savingsPlanMode==='all_to_debt'?'var(--accent-cyan)':'rgba(255,255,255,0.1)'};background:${savingsPlanMode==='all_to_debt'?'rgba(6,182,212,0.15)':'var(--bg-secondary)'};color:var(--text-primary);">
@@ -1075,6 +1090,14 @@ function renderSavingsProjection() {
   if (picker) {
     picker.addEventListener('change', e => {
       savingsTargetDate = e.target.value + '-01';
+      renderSavingsProjection();
+    });
+  }
+
+  const chkLoan = document.getElementById('chk-use-loan-remainder');
+  if (chkLoan) {
+    chkLoan.addEventListener('change', e => {
+      useLoanRemainderInSim = e.target.checked;
       renderSavingsProjection();
     });
   }
@@ -1491,7 +1514,9 @@ function renderStrategyTab() {
           </div>`;
         }
 
-        let remaining = 378000;
+        const initialLoanCash = 130000;
+        const alreadyUsedLoanCash = 378000 - initialLoanCash;
+        let remaining = initialLoanCash;
         let totalCCInterestSaved = 0;
         const steps = activeTargets.map(t => {
           const debt = debts.find(d => d.id === t.id);
@@ -1510,7 +1535,7 @@ function renderStrategyTab() {
           <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
             <div style="display:flex; align-items:center; gap:0.5rem;">
               <span style="background:var(--accent-emerald); color:#000; font-weight:800; font-size:0.75rem; padding:0.25rem 0.65rem; border-radius:6px; text-transform:uppercase;">
-                <i class="fa-solid fa-arrows-rotate"></i> PLAN CONSOLIDACIÓN RD$ 378k
+                <i class="fa-solid fa-arrows-rotate"></i> PLAN CONSOLIDACIÓN (DISPONIBLE: RD$ 130,000)
               </span>
             </div>
             <span style="font-size:0.78rem; color:var(--accent-emerald); font-weight:700;">
@@ -1518,7 +1543,7 @@ function renderStrategyTab() {
             </span>
           </div>
           <p style="font-size:0.8rem; color:var(--text-secondary); line-height:1.45; margin:0;">
-            Usa los RD$ 378,000 del préstamo (16.9% anual) para liquidar las tarjetas en este orden. Pagas mucho menos interés que el 60% de las tarjetas.
+            De los <strong>RD$ 378,000</strong> del préstamo ya utilizaste <strong>${formatCurrency(alreadyUsedLoanCash, 'DOP')}</strong> en las primeras tarjetas saldadas. Con los <strong>RD$ 130,000.00 restantes</strong> cubres el 100% de las 5 deudas pendientes (<strong>${formatCurrency(initialLoanCash - remaining, 'DOP')}</strong>) y aún te quedan <strong>${formatCurrency(Math.max(0, remaining), 'DOP')}</strong> libres.
           </p>
           <div style="display:flex; flex-direction:column; gap:0.55rem;">
             ${steps.map((s, i) => `
@@ -1530,28 +1555,28 @@ function renderStrategyTab() {
                 </div>
                 <div style="text-align:right; min-width:110px;">
                   <div style="font-weight:800; font-size:0.88rem; color:${s.fullyPaid ? 'var(--accent-emerald)' : 'var(--accent-amber)'};">
-                    ${s.fullyPaid ? '✓ Saldada' : `${s.pct}% cubierta`}
+                    ${s.fullyPaid ? '✓ Cubierta 100%' : `${s.pct}% cubierta`}
                   </div>
                   <div style="font-size:0.7rem; color:var(--text-muted);">−${formatCurrency(s.paid, 'DOP')}</div>
                 </div>
               </div>
             `).join('')}
           </div>
-          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.6rem; margin-top:0.25rem;">
+          <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:0.6rem; margin-top:0.25rem;">
             <div style="background:rgba(0,0,0,0.3); border-radius:var(--radius-sm); padding:0.6rem; text-align:center;">
-              <div style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Restante del préstamo</div>
-              <div style="font-size:1rem; font-weight:800; color:var(--accent-cyan); margin-top:0.2rem;">${formatCurrency(Math.max(0, remaining), 'DOP')}</div>
-              <div style="font-size:0.68rem; color:var(--text-muted);">Fondo de emergencia</div>
+              <div style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Te quedan del préstamo</div>
+              <div style="font-size:1rem; font-weight:800; color:var(--accent-emerald); margin-top:0.2rem;">${formatCurrency(initialLoanCash, 'DOP')}</div>
+              <div style="font-size:0.68rem; color:var(--text-muted);">Ya usaste RD$ 248,000</div>
             </div>
             <div style="background:rgba(0,0,0,0.3); border-radius:var(--radius-sm); padding:0.6rem; text-align:center;">
-              <div style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Cuota nueva</div>
+              <div style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Sobrante tras pagar las 5</div>
+              <div style="font-size:1rem; font-weight:800; color:var(--accent-cyan); margin-top:0.2rem;">${formatCurrency(Math.max(0, remaining), 'DOP')}</div>
+              <div style="font-size:0.68rem; color:var(--text-muted);">Para tu fondo de ahorro</div>
+            </div>
+            <div style="background:rgba(0,0,0,0.3); border-radius:var(--radius-sm); padding:0.6rem; text-align:center;">
+              <div style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Cuota fija préstamo</div>
               <div style="font-size:1rem; font-weight:800; color:var(--accent-amber); margin-top:0.2rem;">${formatCurrency(10935.63, 'DOP')}</div>
               <div style="font-size:0.68rem; color:var(--text-muted);">/mes · 48 meses</div>
-            </div>
-            <div style="background:rgba(0,0,0,0.3); border-radius:var(--radius-sm); padding:0.6rem; text-align:center;">
-              <div style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Flujo liberado</div>
-              <div style="font-size:1rem; font-weight:800; color:var(--accent-emerald); margin-top:0.2rem;">+${formatCurrency(Math.max(0, (steps.filter(s=>s.fullyPaid).reduce((a,s) => {const d=debts.find(dd=>dd.id===s.id); return a+(d ? (d.currency==='USD'?d.minPayment*rate:d.minPayment):0);},0)) - 10935.63), 'DOP')}</div>
-              <div style="font-size:0.68rem; color:var(--text-muted);">/mes de alivio neto</div>
             </div>
           </div>
         </div>`;
